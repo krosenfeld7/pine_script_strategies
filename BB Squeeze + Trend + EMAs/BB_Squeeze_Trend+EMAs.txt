@@ -1,0 +1,110 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+study(shorttitle="EMAs + BB Squeeze + Trend", title="Bollinger Bands Squeeze / Trend + EMAs", overlay=true)
+
+// EMAs
+trendModeStr   = input(title = "Trend or Squeeze",     type = input.string,     defval = "Trend", options = ["Trend", "Squeeze"])
+ema1Length     = input(title = "EMA Short Length",     type = input.integer,    defval = 20, minval = 1)
+ema1Input      = input(title = "EMA Short Source",     type = input.source,     defval = close)
+ema1Resolution = input(title = "EMA Short Resolution", type = input.resolution, defval = "D")
+ema2Length     = input(title = "EMA Med Length",       type = input.integer,    defval = 50, minval = 1)
+ema2Input      = input(title = "EMA Med Source",       type = input.source,     defval = close)
+ema2Resolution = input(title = "EMA Med Resolution",   type = input.resolution, defval = "D")
+ema3Length     = input(title = "EMA Long Length",      type = input.integer,    defval = 100, minval = 1)
+ema3Input      = input(title = "EMA Long Source",      type = input.source,     defval = close)
+ema3Resolution = input(title = "EMA Long Resolution",  type = input.resolution, defval = "D")
+
+ema1 = ema(ema1Input, ema1Length)
+ema2 = ema(ema2Input, ema2Length)
+ema3 = ema(ema3Input, ema3Length)
+
+trendMode = trendModeStr == "Trend"
+
+ema1Daily = security(syminfo.tickerid, ema1Resolution, ema1[barstate.isrealtime ? 1 : 0], barmerge.gaps_off, barmerge.lookahead_off)
+ema2Daily = security(syminfo.tickerid, ema2Resolution, ema2[barstate.isrealtime ? 1 : 0], barmerge.gaps_off, barmerge.lookahead_off)
+ema3Daily = security(syminfo.tickerid, ema3Resolution, ema3[barstate.isrealtime ? 1 : 0], barmerge.gaps_off, barmerge.lookahead_off)
+
+plot(ema1Daily, "EMA Short", color = color.new(color.white, transp = trendMode ? 0 : 100), linewidth = 2)
+plot(ema2Daily, "EMA Med",   color = color.new(color.blue, transp = trendMode ? 0 : 100),   linewidth = 2)
+plot(ema3Daily, "EMA Long",  color = color.new(color.yellow, transp = trendMode ? 0 : 100), linewidth = 2)
+
+emaLong  = ema1Daily > ema2Daily and ema2Daily > ema3Daily
+emaShort = ema1Daily < ema2Daily and ema2Daily < ema3Daily
+
+// Bollinger Bands
+length1 = input(title = "BB MA Length", type = input.integer, defval = 20, minval = 1)
+src1    = input(title = "BB MA Source", type = input.source,  defval = hlc3)
+maType  = input(title = "BB MA Type",   type = input.string,  defval = "SMA", options = ["SMA", "EMA"])
+mult1   = input(title = "BB 1 Std Dev Multiplier", type = input.float, defval = 2.0, minval = 0.001, maxval = 50)
+mult2   = input(title = "BB 2 Std Dev Multiplier", type = input.float, defval = 1.0, minval = 0.001, maxval = 50)
+
+bbLookback    = input(title = "BB Lookback",    type = input.integer, defval = 10, minval = 1)
+displayLabels = input(title = "Display Labels", type = input.bool,    defval = true)
+
+bbMa = sma(src1, length1)
+
+if maType == "EMA"
+    bbMa := ema(src1, length1)
+
+plot(bbMa, "Basis", color = color.new(color.white, transp = 50), linewidth = 2)
+
+// BB One
+dev1 = mult1 * stdev(src1, length1)
+upper1 = bbMa + dev1
+lower1 = bbMa - dev1
+p1 = plot(upper1, "Upper", color = color.new(color.green, transp = 50), linewidth = 2)
+p2 = plot(lower1, "Lower", color = color.new(color.orange, transp = 50), linewidth = 2)
+
+// BB Two
+dev2 = mult2 * stdev(src1, length1)
+upper2 = bbMa + dev2
+lower2 = bbMa - dev2
+p3 = plot(upper2, "Upper", color = color.new(color.green, transp = 50), linewidth = 2)
+p4 = plot(lower2, "Lower", color = color.new(color.orange, transp = 50), linewidth = 2)
+
+fill(p1, p3, title = "Background", color=color.new(color.green, transp = 75))
+fill(p3, p4, title = "Background", color=color.new(color.white, transp = 100))
+fill(p4, p2, title = "Background", color=color.new(color.orange, transp = 75))
+
+bb1Upper = ema(upper1, bbLookback)
+bb1Lower = ema(lower1, bbLookback)
+bb2Upper = ema(upper2, bbLookback)
+bb2Lower = ema(lower2, bbLookback)
+
+bb1Contraction = upper1 < bb1Upper and lower1 > bb1Lower
+bb2Contraction = upper2 < bb2Upper and lower2 > bb2Lower
+ 
+bbLong  = close > upper1
+bbShort = close < lower1
+
+// Net Volume
+higherVolume = volume > volume[1] and volume[1] > volume[2]
+
+squeezeLong  = bb1Contraction and higherVolume and bbLong
+squeezeShort = bb1Contraction and higherVolume and bbShort
+
+trendLong  = emaLong  and bbLong
+trendShort = emaShort and bbShort
+
+if trendLong and displayLabels and trendMode
+    label.new(x = bar_index, y = na, text = "Trend Long", yloc = yloc.abovebar, color = color.green)
+if trendShort and displayLabels and trendMode
+    label.new(x = bar_index, y = na, text = "Trend Short", yloc = yloc.abovebar, color = color.red)
+if squeezeLong and displayLabels and not trendMode
+    label.new(x = bar_index, y = na, text = "Squeeze Long", yloc = yloc.abovebar, color = color.green)
+if squeezeShort and displayLabels and not trendMode
+    label.new(x = bar_index, y = na, text = "Squeeze Short", yloc = yloc.abovebar, color = color.red)
+
+if barstate.isrealtime and displayLabels
+    label.new(x = bar_index, y = upper1, text = "+" + tostring(mult1), style = label.style_none, textcolor = color.white)
+    label.new(x = bar_index, y = upper2, text = "+" + tostring(mult2), style = label.style_none, textcolor = color.white)
+    label.new(x = bar_index, y = lower2, text = "-" + tostring(mult2), style = label.style_none, textcolor = color.white)
+    label.new(x = bar_index, y = lower1, text = "-" + tostring(mult1), style = label.style_none, textcolor = color.white)
+
+// Alerts
+alertcondition(trendLong,   title = "Trend Long Signal",    message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(trendShort,  title = "Trend Short Signal",   message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(squeezeLong, title = "Squeeze Long Signal",  message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(squeezeShort,title = "Squeeze Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

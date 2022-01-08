@@ -1,0 +1,80 @@
+//@version=4
+// EMA Section
+study(title="MTF EMA + MACD", shorttitle="MTF EMA + MACD", overlay=true)
+
+// MTF EMA 1
+mtfShort = input(title="Short MTF EMA", type=input.resolution, defval="15")
+maShort_length = input(title = "Short EMA Period", defval = 50, minval = 1)
+maShort = security(syminfo.tickerid, mtfShort, ema(close, maShort_length)[barstate.isrealtime ? 1 : 0])
+
+// MTF EMA 2
+mtfLong = input(title="Long MTF EMA", type=input.resolution, defval="60")
+maLong_length = input(title = "Long EMA Period", defval = 50, minval = 1)
+maLong = security(syminfo.tickerid, mtfLong, ema(close, maLong_length)[barstate.isrealtime ? 1 : 0])
+
+pEma50  = plot(maShort, title="Short MTF EMA", color=color.white, linewidth=2)
+pEma200 = plot(maLong,  title="Long MTF EMA", color=color.orange, linewidth=2)
+
+emaLong  = maShort > maLong
+emaShort = maShort < maLong
+
+// MACD Section
+fast_length = input(title="Fast MACD Length", type=input.integer, defval=12)
+slow_length = input(title="Slow MACD Length", type=input.integer, defval=26)
+macdSrc = input(title="MACD Source", type=input.source, defval=close)
+signal_length = input(title="MACD Signal Smoothing", type=input.integer, minval = 1, maxval = 50, defval = 9)
+sma_source = input(title="MACD Simple MA (Oscillator)", type=input.bool, defval=false)
+sma_signal = input(title="MACD Simple MA (Signal Line)", type=input.bool, defval=false)
+
+// Calculating
+fast_ma = sma_source ? sma(macdSrc, fast_length) : ema(macdSrc, fast_length)
+slow_ma = sma_source ? sma(macdSrc, slow_length) : ema(macdSrc, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal ? sma(macd, signal_length) : ema(macd, signal_length)
+hist = macd - signal
+
+macdCrossDn = crossunder(macd, signal)
+macdCrossUp = crossover(macd,  signal)
+
+macdCross0 = cross(macd,   0)
+sigCross0  = cross(signal, 0)
+
+varip longCrossCount  = 0
+varip shortCrossCount = 0
+
+if macdCrossDn
+    longCrossCount += 1
+
+if longCrossCount == 1 and macdCrossUp
+    longCrossCount += 1
+
+if longCrossCount == 2 and macdCrossDn
+    longCrossCount += 1
+
+if macdCross0 or sigCross0 or macd > 0 or signal > 0
+    longCrossCount := 0
+
+if macdCrossUp
+    shortCrossCount += 1
+
+if longCrossCount == 1 and macdCrossDn
+    shortCrossCount += 1
+
+if longCrossCount == 2 and macdCrossUp
+    shortCrossCount += 1
+
+if macdCross0 or sigCross0 or macd < 0 or signal < 0
+    shortCrossCount := 0
+
+long  = emaLong  and longCrossCount == 3
+short = emaShort and shortCrossCount == 3
+
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

@@ -1,0 +1,48 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+study("Daily Trend + 4 Hour Reversal + 15 Min Pressure", shorttitle="Daily Trend + 4 Hour Reversal + 15 Min Pressure", overlay=true)
+
+ema50daily = ema(close, 50)
+ema50hourly = ema(close, 50)
+emaDaily = security(syminfo.tickerid, "D", ema50daily, barmerge.gaps_off, barmerge.lookahead_on)
+emaHourly = security(syminfo.tickerid, "240", ema50hourly, barmerge.gaps_off, barmerge.lookahead_on)
+
+plot(emaDaily, color=color.white, linewidth=3)
+plot(emaHourly, color=color.blue, linewidth=3)
+
+// Bullish (Long)
+// Daily trend up, 50 EMA above
+// 4 Hour reversal pattern going bullish (down to up)
+// 15 Min bullish pressure, close above the high of the previous 
+// candle while in the region of the 4 hour reversal pattern
+
+emaDailyLong = close > emaDaily
+emaHourlyLong = crossover(close, emaHourly)
+buyPressure = close > high[1]
+
+tempLong = emaDailyLong and emaHourlyLong and buyPressure
+long = tempLong ? 1 : 0
+
+// Bearish (Short)
+// Daily trend down, 50 EMA below
+// 4 Hour reversal pattern going bearish (up to down)
+// 15 min bearish pressure, close below low of the previous 
+// candle while in the region of the 4 hour reversal pattern
+
+emaDailyShort = close < emaDaily
+emaHourlyShort = crossunder(close, emaHourly)
+sellPressure = close < low[1]
+
+tempShort = emaDailyShort and emaHourlyShort and sellPressure
+short = tempShort ? 1 : 0
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

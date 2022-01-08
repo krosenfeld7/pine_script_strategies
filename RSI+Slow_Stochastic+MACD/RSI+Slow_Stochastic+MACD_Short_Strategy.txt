@@ -1,0 +1,120 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+strategy("RSI + Slow Stochastic + MACD Short Strategy (Daily)", overlay = true, pyramiding = 0, 
+         margin_long = 100, margin_short = 100, default_qty_type = strategy.percent_of_equity, 
+         default_qty_value = 20, initial_capital = 2000, process_orders_on_close = true)
+
+// Set the starting point for backtesting
+start = input(title="Backtesting Start", type=input.time, defval=timestamp("1 Jan 2015"))
+// Expiration time on orders
+maxTimeOpen = input(title="Order Expiration", type=input.integer, defval=100, minval=1)
+stopLossMethod = input(title="Stop Loss Method?", type=input.string, defval="Pivot", options=["Pivot", "Percent %", "ATR"])
+
+// Algorithm / Strategy Goes here
+// Set long / short variables to execute positions below
+rsiOver = input(title="RSI Highline", type=input.integer, defval=70, minval=70, maxval=100)
+rsiMid = input(title="RSI Midline", type=input.integer, defval=50, minval=30, maxval=70)
+rsiUnder = input(title="RSI Lowline", type=input.integer, defval=30, maxval=30, minval=0)
+maxDelay = input(title="Label+Indicator Delay", type=input.integer, defval=5, minval=0)
+barsback = input(title="Lookback", type=input.integer, defval=3, minval=1)
+
+// RSI Section
+len1 = input(14, minval=1, title="RSI Length")
+src1 = input(close, "RSI Source", type = input.source)
+up = rma(max(change(src1), 0), len1)
+down = rma(-min(change(src1), 0), len1)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+
+rsiLong = rsi > rsiMid
+rsiShort = rsi < rsiMid
+
+rsiLongExitCondition = rsi > rsiOver
+rsiShortExitCondition = rsi < rsiUnder
+
+// Slow Stochastic
+smoothK = input(14, minval=1), smoothD = input(3, minval=1)
+k = sma(stoch(close, high, low, smoothK), 3)
+d = sma(k, smoothD)
+
+stoLong = k < rsiUnder and d < rsiUnder and crossover(k, d)
+stoShort = k > rsiOver and d > rsiOver and crossunder(k, d)
+
+stoLongExitCondition = k > rsiOver and d > rsiOver
+stoShortExitCondition = k < rsiUnder and d < rsiUnder
+
+// MACD Section
+fast_length = input(title="MACD Fast Length", type=input.integer, defval=12)
+slow_length = input(title="MACD Slow Length", type=input.integer, defval=26)
+src = input(title="MACD Source", type=input.source, defval=close)
+signal_length = input(title="Signal Smoothing", type=input.integer, minval = 1, maxval = 50, defval = 9)
+sma_source = input(title="Simple MA (Oscillator)", type=input.bool, defval=false)
+sma_signal = input(title="Simple MA (Signal Line)", type=input.bool, defval=false)
+
+// Calculating
+fast_ma = sma_source ? sma(src, fast_length) : ema(src, fast_length)
+slow_ma = sma_source ? sma(src, slow_length) : ema(src, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal ? sma(macd, signal_length) : ema(macd, signal_length)
+
+plottableMacd = (macd / 10000) * 100 + 50
+plottableSignal = (signal / 10000) * 100 + 50
+
+macdLong = crossover(macd, signal)
+macdShort = crossunder(macd, signal)
+
+// Bearish (Short)
+// RSI is below 50, trend is downwards
+// Stochastic is in Overbought, cross down
+// MACD crossing down
+// Stop loss at last pivot high
+// Exit when stochastic and rsi are oversold
+
+shortStopLoss = pivothigh(high, barsback, barsback)
+
+tempShort = barssince(rsiShort) < maxDelay and barssince(stoShort) < maxDelay and barssince(macdShort) < maxDelay
+shortExitCondition = rsiShortExitCondition and stoShortExitCondition
+short = tempShort ? 1 : 0
+
+var float shortExitPrice = na
+var float shortStopPrice = na
+
+// Average True Range
+length = input(title="ATR Length", defval=14, minval=1)
+atrMultiplier = input(title="ATR Multiplier", type=input.float, defval=1, minval=0.1)
+atr = atr(length)
+
+shortProfitPercent = input(title = "Profit %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+shortLossPercent = input(title = "Loss %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+
+if stopLossMethod == "Pivot"
+    shortExitPrice := strategy.position_avg_price * (1 - shortProfitPercent)
+    if strategy.opentrades == 0
+        shortStopPrice := shortStopLoss[barssince(shortStopLoss)]
+    
+if stopLossMethod == "Percent %"
+    // Calculating exact prices for stop loss and exit prices
+    shortExitPrice := strategy.position_avg_price * (1 - shortProfitPercent)
+    shortStopPrice := strategy.position_avg_price * (1 + shortLossPercent)
+
+if stopLossMethod == "ATR"
+    // Profit & Loss via ATR
+    shortExitPrice := strategy.position_avg_price - atr * atrMultiplier
+    shortStopPrice := strategy.position_avg_price + atr * atrMultiplier
+
+
+// Plotting profit / loss targets
+plot(series = (strategy.position_size < 0) ? shortExitPrice : na, color = #33b802, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Short Target")
+plot(series = (strategy.position_size < 0) ? shortStopPrice : na, color = #ff0900, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Short Stop Loss")
+
+// Submit entry orders
+if time >= start
+    strategy.entry(id = "Short", long = strategy.short, comment = "Short Open", when = short)
+
+// Submit exit orders
+strategy.exit(id = "Short", limit = shortExitPrice, stop = shortStopPrice, comment = "Short Close", when = strategy.position_size < 0)
+strategy.close(id = "Short", comment = "Expired: >" + tostring(maxTimeOpen), when = (barssince(change(strategy.opentrades)) + 1) >= maxTimeOpen)
+strategy.close(id = "Short", comment = "RSI Oversold", when = shortExitCondition)

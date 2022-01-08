@@ -1,0 +1,67 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+study("Fear + Greed Reversal Projection", overlay=true, shorttitle="Fear & Greed")
+
+// Fear & Greed Section
+lowPeriod = input(30, title="Low Period")
+highPeriod = input(30, title="High Period")
+stdev_period = input(50, title="Stdev Period")
+src = input(ohlc4, title="Source")
+WMA = input(false, title="Use WMA instead of SMA?")
+
+// Condition One 
+greedZone1 = (lowest(src, lowPeriod) - src) / lowest(src, lowPeriod)
+greedAvg1 = WMA ? wma(greedZone1, stdev_period) : sma(greedZone1, stdev_period)
+greedZoneLimit1 = greedAvg1 - stdev(greedZone1, stdev_period)
+
+fearZone1 = (highest(src, highPeriod) - src) / highest(src, highPeriod)
+fearAvg1 = WMA ? wma(fearZone1, stdev_period) : sma(fearZone1, stdev_period)
+fearZoneLimit1 = fearAvg1 + stdev(fearZone1, stdev_period)
+
+// Condition Two
+greedZone2 = WMA ? wma(src, lowPeriod) : sma(src, lowPeriod)
+greedAvg2 = WMA ? wma(greedZone2, stdev_period) : sma(greedZone2, stdev_period)
+greedZoneLimit2 = greedAvg2 + stdev(greedZone2, stdev_period)
+
+fearZone2 = WMA ? wma(src, highPeriod) : sma(src, highPeriod)
+fearAvg2 = WMA ? wma(fearZone2, stdev_period) : sma(fearZone2, stdev_period)
+fearZoneLimit2 = fearAvg2 - stdev(fearZone2, stdev_period)
+
+// GreedZone
+inGreedZone = greedZone1 < greedZoneLimit1 and greedZone2 > greedZoneLimit2 
+greedZoneOpen = inGreedZone ? low - tr : na
+greedZoneClose = inGreedZone ? low - 2 * tr : na
+
+inFearZone = fearZone1 > fearZoneLimit1 and fearZone2 < fearZoneLimit2
+fearZoneOpen = inFearZone ? low - tr : na
+fearZoneClose = inFearZone ? low - 2 * tr : na
+
+greedGap = inGreedZone ? greedZoneOpen - greedZoneClose : na
+fearGap = inFearZone ? fearZoneOpen - fearZoneClose : na
+
+// Fear / Greed Trend reversing
+greedy = greedGap > 0
+noLongerGreedy = (greedy[1] == true and greedy == false) ? 1 : 0
+fearful = fearGap > 0
+noLongerFearful = (fearful[1] == true and fearful == false) ? 1 : 0
+
+// Extreme cases
+extremeFear = (fearGap > fearZoneClose) ? 1 : 0
+extremeGreed = (greedGap > greedZoneClose) ? 1 : 0
+
+plot(greedGap, color=color.purple, style=plot.style_linebr)
+plotcandle(greedZoneOpen, greedZoneOpen, greedZoneClose, greedZoneClose, color=color.red, bordercolor=color.white,  title="Greedy Candlesticks")
+
+plot(fearGap, color=color.aqua, style=plot.style_linebr)
+plotcandle(fearZoneOpen, fearZoneOpen, fearZoneClose, fearZoneClose, color=color.blue, bordercolor=color.white,  title="Fearful Candlesticks")
+
+// Alerts
+alertcondition(inGreedZone == true and inGreedZone[1] == false, title='Entering Greedy Zone', message='Entering Greedy Zone')
+alertcondition(noLongerGreedy, title='Leaving Greedy Zone', message='Leaving Greedy Zone (Trend Reversal)')
+alertcondition(extremeGreed, title='EXTREME GREED (Day Only)', message='EXTREME GREED')
+
+alertcondition(inFearZone == true and inFearZone[1] == false, title='Entering Fear Zone', message='Entering Fear Zone')
+alertcondition(noLongerFearful, title='Leaving Fear Zone', message='Leaving Fear Zone (Trend Reversal)')
+alertcondition(extremeGreed, title='EXTREME FEAR (Day Only)', message='EXTREME FEAR')

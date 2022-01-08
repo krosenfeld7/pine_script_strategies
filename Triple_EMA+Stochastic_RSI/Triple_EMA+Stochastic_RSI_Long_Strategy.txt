@@ -1,0 +1,73 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+// This script is best on the daily timeframe
+//@version=4
+strategy("Triple EMA + Stochastic Long Strategy (D)", overlay = true, pyramiding = 0, 
+         margin_long = 100, margin_short = 100, default_qty_type = strategy.percent_of_equity, 
+         default_qty_value = 20, initial_capital = 2000, process_orders_on_close = true)
+
+// Set the starting point for backtesting
+start = input(title="Backtesting Start", type=input.time, defval=timestamp("1 Jan 2015"))
+// Expiration time on orders
+maxTimeOpen = input(title="Order Expiration", type=input.integer, defval=130, minval=1)
+useAtr = input(title="Use ATR?", type=input.bool, defval=false)
+
+// Algorithm / Strategy Goes here
+// Set long / short variables to execute positions below
+len1 = input(20, minval=1, title="Short EMA Length")
+src1 = input(close, title="Short EMA Source")
+out1 = ema(src1, len1)
+plot(out1, title="Short EMA", color=color.blue, linewidth=3)
+len2 = input(50, minval=1, title="Intermediate EMA Length")
+src2 = input(close, title="Intermediate EMA Source")
+out2 = ema(src2, len2)
+plot(out2, title="Intermediate EMA", color=color.yellow, linewidth=3)
+len3 = input(200, minval=1, title="Long EMA Length")
+src3 = input(close, title="Long EMA Source")
+out3 = ema(src3, len3)
+plot(out3, title="Long EMA", color=color.white, linewidth=3)
+
+// Stochastic RSI Section
+smoothK = input(3, "Stochastic K", minval=1)
+smoothD = input(3, "Stochastic D", minval=1)
+src = input(close, title="RSI Source")
+lengthRSI = input(14, "RSI Length", minval=1)
+lengthStoch = input(14, "Stochastic Length", minval=1)
+rsi1 = rsi(src, lengthRSI)
+k = sma(stoch(rsi1, rsi1, rsi1, lengthStoch), smoothK)
+d = sma(k, smoothD)
+
+// Computing Strategy
+long = (barstate.isconfirmed and (k > d) and (out1 > out2) and (out2 > out3) and (close > out1) and ((open < close) and (close > close[1])) and (open > out1)) ? 1 : 0
+short = (barstate.isconfirmed and (d > k) and ((out1 < out2) and (out2 < out3)) and (close < out1) and ((open > close) and (close < close[1])) and (open < out1)) ? 1 : 0
+
+// Average True Range
+length = input(title="ATR Length", defval=14, minval=1)
+atrMultiplier = input(title="ATR Multiplier", type=input.float, defval=1, minval=0.1)
+atr = atr(length)
+
+longProfitPercent = input(title = "Profit %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 30) / 100
+longLossPercent = input(title = "Loss %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 100) / 100
+
+// Calculating exact prices for stop loss and exit prices
+longExitPercentPrice = strategy.position_avg_price * (1 + longProfitPercent)
+longStopPercentPrice = strategy.position_avg_price * (1 - longLossPercent)
+
+// Profit & Loss via ATR
+longExitPrice = useAtr ? strategy.position_avg_price + atr * atrMultiplier : longExitPercentPrice
+longStopPrice = useAtr ? strategy.position_avg_price - atr * atrMultiplier : longStopPercentPrice
+
+// Plotting profit / loss targets
+plot(series = (strategy.position_size > 0) ? longExitPrice : na, color = color.green, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Long Target")
+plot(series = (strategy.position_size > 0) ? longStopPrice : na, color = color.red, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Long Stop Loss")
+
+// Submit entry orders
+if time >= start
+    strategy.entry(id = "Long", long = strategy.long, comment = "Long Open", when = long)
+
+// Submit exit orders
+strategy.exit(id = "Long", limit = longExitPrice, stop = longStopPrice, comment = "Long Close", when = strategy.position_size > 0)
+strategy.close(id = "Long", comment = "Expired: >" + tostring(maxTimeOpen), when = (barssince(change(strategy.opentrades)) + 1) >= maxTimeOpen)

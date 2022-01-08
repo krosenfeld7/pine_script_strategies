@@ -1,0 +1,21 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+study(title = "Engulfing Candle", shorttitle = "Engulfing Candle", overlay = true)
+
+//If current bar open is less than equal to the previous bar close AND current bar open is less than previous bar open AND current bar close is greater than previous bar open THEN True
+bullishEngulfing = (open <= close[1]) and (open < open[1]) and (close > open[1])
+//If current bar open is greater than equal to previous bar close AND current bar open is greater than previous bar open AND current bar close is less than previous bar open THEN True
+bearishEngulfing = (open >= close[1]) and (open > open[1]) and (close < open[1])
+
+//bullishEngulfing/bearishEngulfing return a value of 1 or 0; if 1 then plot on chart, if 0 then don't plot
+plotshape(bullishEngulfing, style = shape.triangleup, location = location.belowbar, color = #00ff00, size = size.tiny)
+plotshape(bearishEngulfing, style = shape.triangledown , location = location.abovebar, color = #ff0000, size = size.tiny)
+
+long = bullishEngulfing
+short = bearishEngulfing
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

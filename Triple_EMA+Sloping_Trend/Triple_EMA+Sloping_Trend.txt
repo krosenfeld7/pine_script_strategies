@@ -1,0 +1,81 @@
+//@version=4
+// EMA Section
+study(title="Triple EMA + Sloping Trend", shorttitle="Triple EMA + Sloping Trend", overlay=true, max_labels_count = 500)
+
+emaShort    = input(title = "Short EMA Length", type = input.integer, defval = 50,  minval = 1)
+emaShortSrc = input(title = "Short EMA Src",    type = input.source,  defval = close)
+emaMed      = input(title = "Med EMA Length",   type = input.integer, defval = 100, minval = 1)
+emaMedSrc   = input(title = "Med EMA Src",      type = input.source,  defval = close)
+emaLong     = input(title = "Long EMA Length",  type = input.integer, defval = 150, minval = 1)
+emaLongSrc  = input(title = "Long EMA Src",     type = input.source,  defval = close)
+slopeRange  = input(title = "Slope Range",      type = input.integer, defval = 10,  minval = 1)
+slopeDegLim = input(title = "Slope Angle Limit",type = input.float,   defval = 30,  minval = 1)
+
+ema50  = ema(close, 50)
+ema100 = ema(close, 100)
+ema150 = ema(close, 150)
+
+plot(ema50, color=color.blue, linewidth = 2)
+plot(ema100, color=color.yellow, linewidth = 2)
+plot(ema150, color=color.red, linewidth = 2)
+
+calculate_slope(_range, _src) =>
+    _y = _src - nz(_src[_range])
+    _angle = atan(_y/_range)
+    _angle
+
+calculate_avg_slope(_range, _src) =>
+    _total = 0.0
+    for i = 1 to _range
+        _total += calculate_slope(i, _src)
+    
+    _total / _range
+
+slopeEMA1 = todegrees(calculate_avg_slope(slopeRange, ema50))
+slopeEMA2 = todegrees(calculate_avg_slope(slopeRange, ema100))
+slopeEMA3 = todegrees(calculate_avg_slope(slopeRange, ema150))
+
+// Bullish
+// 50 MA > 100 MA > 200 MA all with slopes > 30 deg
+// closes below 50 EMA, but above 100 EMA, long when candle closes above 50 EMA
+
+closeBelow50  = crossunder(close, ema50)
+closeBelow100 = crossunder(close, ema100)
+closeBelow150 = crossunder(close, ema150)
+
+correctBullOrder = barssince(closeBelow50) < barssince(closeBelow100)
+
+tempLongPos = ema50 > ema100 and ema100 > ema150 and correctBullOrder and crossover(close, ema50)
+
+emaLongPos = barssince(tempLongPos) < barssince(close < ema100) and barssince(tempLongPos) < barssince(close < ema150)
+
+slopeLongPos = slopeEMA1 > slopeDegLim and slopeEMA2 > slopeDegLim and slopeEMA3 > slopeDegLim
+
+// Bearish
+// 50 MA < 100 MA < 200 MA all with slopes < -30 deg
+// closes above, but below 100 EMA, short when candle closes below 50 EMA
+
+closeAbove50  = crossover(close, ema50)
+closeAbove100 = crossover(close, ema100)
+closeAbove150 = crossover(close, ema150)
+
+correctBearOrder = barssince(closeAbove50) < barssince(closeAbove100)
+
+tempShortPos = ema50 < ema100 and ema100 < ema150 and correctBearOrder and crossunder(close, ema50)
+
+emaShortPos = barssince(tempShortPos) < barssince(close > ema100) and barssince(tempShortPos) < barssince(close > ema150)
+
+slopeShortPos =  slopeEMA1 < -slopeDegLim and slopeEMA2 < -slopeDegLim and slopeEMA3 < -slopeDegLim
+
+// Computing Strategy
+long  = emaLongPos  and slopeLongPos
+short = emaShortPos and slopeShortPos
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

@@ -1,0 +1,162 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+strategy("50 EMA + 200 EMA + VMC Cipher Short Strategy", overlay = true, pyramiding = 0, 
+         margin_long = 100, margin_short = 100, 
+         default_qty_type = strategy.percent_of_equity, 
+         default_qty_value = 20, initial_capital = 2000, 
+         process_orders_on_close = true)
+
+// Set the starting point for backtesting
+start = input(title = "Backtesting Start", type = input.time,
+     defval = timestamp("1 Jan 2015"))
+maxTimeOpen = input(title = "Order Expiration", type = input.integer,
+     defval = 100, minval = 1)
+tpSlStrategy = input(title = "Take Profit Strategy", type = input.string,
+     defval = "Percent", options = ["Percent", "ATR"])
+trailingStop = input(title = "Trailing Stop", type = input.string,
+     defval = "Fixed", options = ["Fixed", "Trail"])
+
+// ATR For Stop Loss
+atrLength = input(title = "ATR SL Length", defval = 14,
+     minval = 1)
+atrMultiplier = input(title = "ATR Multiplier", type = input.float, 
+     defval = 1, minval = 0.1)
+riskLevel = input(title = "Risk Level", type = input.float, 
+     defval = 1, minval = 0.1)
+
+shortProfitPercent = input(title = "Take Profit %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+shortLossPercent = input(title = "Stop Loss %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+
+// Algorithm / Strategy Goes here
+// Set short variables to execute positions below
+// EMA section
+len1 = input(50, minval=1, title="Short EMA Length")
+src1 = input(close, title="Short EMA Source")
+len2 = input(200, minval=1, title="Long EMA Length")
+src2 = input(close, title="Long EMA Source")
+lookback = input(title = "Pullback Lookback", defval = 10, minval = 1)
+ema50  = ema(src1, len1)
+ema200 = ema(src2, len2)
+
+plot(ema50, title="Short EMA", color=color.blue, linewidth = 3)
+plot(ema200, title="Long EMA", color=color.white, linewidth = 3)
+
+emaLong  = close > ema200
+emaShort = close < ema200
+
+emaLongPullback  = low[1]  > ema50 and low  < ema50
+emaShortPullback = high[1] < ema50 and high > ema50
+
+emaLong  := barssince(emaLongPullback) < lookback and emaLong
+emaShort := barssince(emaShortPullback) < lookback and emaShort
+
+// Money flow section
+
+rsiMFIperiod = input(60, title = 'MFI Period', type = input.integer)
+rsiMFIMultiplier = input(150, title = 'MFI Area multiplier', type = input.float)
+rsiMFIPosY = input(2.5, title = 'MFI Area Y Pos', type = input.float)
+
+f_rsimfi(_period, _multiplier, _tf) => security(syminfo.tickerid, _tf, sma(((close - open) / (high - low)) * _multiplier, _period) - rsiMFIPosY)
+
+rsiMFI = f_rsimfi(rsiMFIperiod, rsiMFIMultiplier, timeframe.period)
+
+plot(rsiMFI, color = color.new(rsiMFI < 0 ? color.red : color.green, transp=100))
+
+rsiMFILong  = rsiMFI > 0
+rsiMFIShort = rsiMFI < 0
+
+wtChannelLen = input(9, title = 'WT Channel Length', type = input.integer)
+wtAverageLen = input(12, title = 'WT Average Length', type = input.integer)
+wtMASource = input(hlc3, title = 'WT MA Source', type = input.source)
+wtMALen = input(3, title = 'WT MA Length', type = input.integer)
+
+f_wavetrend(src, chlen, avg, malen, tf) =>
+    tfsrc = security(syminfo.tickerid, tf, src)
+    esa = ema(tfsrc, chlen)
+    de = ema(abs(tfsrc - esa), chlen)
+    ci = (tfsrc - esa) / (0.015 * de)
+    wt1 = security(syminfo.tickerid, tf, ema(ci, avg))
+    wt2 = security(syminfo.tickerid, tf, sma(wt1, malen))
+    [wt1, wt2]
+
+[wt1, wt2] = f_wavetrend(wtMASource, wtChannelLen, wtAverageLen, wtMALen, timeframe.period)
+
+wtLong  = wt1 < 0 and wt2 < 0
+wtShort = wt1 > 0 and wt2 > 0
+
+wtCrossUp   = crossover(wt1, wt2)
+wtCrossDown = crossunder(wt1, wt2)
+
+plot(wt1, color = color.new(wtCrossUp ? color.green : color.blue,  transp=100))
+plot(wt2, color = color.new(wtCrossDown ? color.red : color.blue, transp=100))
+
+wtLong  := wtCrossUp and wtLong
+wtShort := wtCrossDown and wtShort
+
+// Computing Strategy
+long  = emaLong  and rsiMFILong  and wtLong
+short = emaShort and rsiMFIShort and wtShort
+
+// End Algorithm
+
+shortExitPrice = 0.0
+shortStopPrice = 0.0
+
+shortExitPercentPrice = strategy.position_avg_price * (1 - 
+     (shortProfitPercent * riskLevel))
+shortStopPercentPrice = strategy.position_avg_price * (1 + 
+     shortLossPercent)
+
+// Profit & Loss via ATR
+atr = atr(atrLength)
+
+atr := valuewhen(strategy.position_size == 0, atr, 0)
+
+shortExitAtrPrice = strategy.position_avg_price - (atr * 
+     atrMultiplier * riskLevel)
+shortStopAtrPrice = strategy.position_avg_price + (atr * 
+     atrMultiplier)
+
+if tpSlStrategy == "Percent"
+    shortExitPrice := shortExitPercentPrice
+    
+    if trailingStop == "Fixed"
+        shortStopPrice := shortStopPercentPrice
+    else if trailingStop == "Trail"
+        stopValue      = close * (1 + shortLossPercent)
+        shortStopPrice := (strategy.position_size < 0) ? 
+             min(stopValue, shortStopPrice[1]) : 999999
+
+else if tpSlStrategy == "ATR"
+    if strategy.position_size < 0
+        shortExitPrice := shortExitAtrPrice
+        
+    if trailingStop == "Fixed"
+        shortStopPrice := shortStopAtrPrice
+    else if trailingStop == "Trail"
+        stopValue      = close + (atr * atrMultiplier)
+        shortStopPrice := (strategy.position_size < 0) ? 
+             min(stopValue, shortStopPrice[1]) : 999999
+
+// Plotting profit / loss targets
+plot(series = (strategy.position_size < 0) ? shortExitPrice : na, 
+     color = color.green, style = plot.style_linebr, linewidth = 3, 
+     title = "Short Target")
+plot(series = (strategy.position_size < 0) ? shortStopPrice : na, 
+     color = color.red, style = plot.style_linebr, linewidth = 3, 
+     title = "Short Stop Loss")
+
+// Submit entry orders
+if time >= start
+    strategy.entry(id = "Short", long = strategy.short, 
+         comment = "Short Open", when = short)
+
+// Submit exit orders
+strategy.exit(id = "Short", limit = shortExitPrice, stop = shortStopPrice, 
+     comment = "Short Close", when = strategy.position_size < 0)
+strategy.close(id = "Short", comment = "Expired: >" + tostring(maxTimeOpen), 
+     when = (barssince(change(strategy.opentrades)) + 1) >= maxTimeOpen)

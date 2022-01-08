@@ -1,0 +1,180 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+strategy("EMAs + BB Squeeze + Trend Short Strategy", overlay = true, pyramiding = 0, 
+         margin_long = 100, margin_short = 100, 
+         default_qty_type = strategy.percent_of_equity, 
+         default_qty_value = 20, initial_capital = 2000, 
+         process_orders_on_close = true)
+
+// Set the starting point for backtesting
+start = input(title = "Backtesting Start", type = input.time,
+     defval = timestamp("1 Jan 2015"))
+maxTimeOpen = input(title = "Order Expiration", type = input.integer,
+     defval = 100, minval = 1)
+tpSlStrategy = input(title = "Take Profit Strategy", type = input.string,
+     defval = "Percent", options = ["Percent", "ATR"])
+trailingStop = input(title = "Trailing Stop", type = input.string,
+     defval = "Fixed", options = ["Fixed", "Trail"])
+
+// ATR For Stop Loss
+atrLength = input(title = "ATR SL Length", defval = 14,
+     minval = 1)
+atrMultiplier = input(title = "ATR Multiplier", type = input.float, 
+     defval = 1, minval = 0.1)
+riskLevel = input(title = "Risk Level", type = input.float, 
+     defval = 1, minval = 0.1)
+
+shortProfitPercent = input(title = "Take Profit %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+shortLossPercent = input(title = "Stop Loss %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+
+// Algorithm / Strategy Goes here
+// Set short variables to execute positions below
+trendModeStr   = input(title = "Trend or Squeeze",     type = input.string,     defval = "Trend", options = ["Trend", "Squeeze"])
+ema1Length     = input(title = "EMA Short Length",     type = input.integer,    defval = 20, minval = 1)
+ema1Input      = input(title = "EMA Short Source",     type = input.source,     defval = close)
+ema1Resolution = input(title = "EMA Short Resolution", type = input.resolution, defval = "D")
+ema2Length     = input(title = "EMA Med Length",       type = input.integer,    defval = 50, minval = 1)
+ema2Input      = input(title = "EMA Med Source",       type = input.source,     defval = close)
+ema2Resolution = input(title = "EMA Med Resolution",   type = input.resolution, defval = "D")
+ema3Length     = input(title = "EMA Long Length",      type = input.integer,    defval = 100, minval = 1)
+ema3Input      = input(title = "EMA Long Source",      type = input.source,     defval = close)
+ema3Resolution = input(title = "EMA Long Resolution",  type = input.resolution, defval = "D")
+
+ema1 = ema(ema1Input, ema1Length)
+ema2 = ema(ema2Input, ema2Length)
+ema3 = ema(ema3Input, ema3Length)
+
+trendMode = trendModeStr == "Trend"
+
+ema1Daily = security(syminfo.tickerid, ema1Resolution, ema1[barstate.isrealtime ? 1 : 0], barmerge.gaps_off, barmerge.lookahead_off)
+ema2Daily = security(syminfo.tickerid, ema2Resolution, ema2[barstate.isrealtime ? 1 : 0], barmerge.gaps_off, barmerge.lookahead_off)
+ema3Daily = security(syminfo.tickerid, ema3Resolution, ema3[barstate.isrealtime ? 1 : 0], barmerge.gaps_off, barmerge.lookahead_off)
+
+plot(ema1Daily, "EMA Short", color = color.new(color.white, transp = trendMode ? 0 : 100), linewidth = 2)
+plot(ema2Daily, "EMA Med",   color = color.new(color.blue, transp = trendMode ? 0 : 100),   linewidth = 2)
+plot(ema3Daily, "EMA Long",  color = color.new(color.yellow, transp = trendMode ? 0 : 100), linewidth = 2)
+
+emaLong  = ema1Daily > ema2Daily and ema2Daily > ema3Daily
+emaShort = ema1Daily < ema2Daily and ema2Daily < ema3Daily
+
+// Bollinger Bands
+length1 = input(title = "BB MA Length", type = input.integer, defval = 20, minval = 1)
+src1    = input(title = "BB MA Source", type = input.source,  defval = hlc3)
+maType  = input(title = "BB MA Type",   type = input.string,  defval = "SMA", options = ["SMA", "EMA"])
+mult1   = input(title = "BB 1 Std Dev Multiplier", type = input.float, defval = 2.0, minval = 0.001, maxval = 50)
+mult2   = input(title = "BB 2 Std Dev Multiplier", type = input.float, defval = 1.0, minval = 0.001, maxval = 50)
+
+bbLookback    = input(title = "BB Lookback",    type = input.integer, defval = 10, minval = 1)
+displayLabels = input(title = "Display Labels", type = input.bool,    defval = true)
+
+bbMa = sma(src1, length1)
+
+if maType == "EMA"
+    bbMa := ema(src1, length1)
+
+plot(bbMa, "Basis", color = color.new(color.white, transp = 50), linewidth = 2)
+
+// BB One
+dev1 = mult1 * stdev(src1, length1)
+upper1 = bbMa + dev1
+lower1 = bbMa - dev1
+p1 = plot(upper1, "Upper", color = color.new(color.green, transp = 50), linewidth = 2)
+p2 = plot(lower1, "Lower", color = color.new(color.orange, transp = 50), linewidth = 2)
+
+// BB Two
+dev2 = mult2 * stdev(src1, length1)
+upper2 = bbMa + dev2
+lower2 = bbMa - dev2
+p3 = plot(upper2, "Upper", color = color.new(color.green, transp = 50), linewidth = 2)
+p4 = plot(lower2, "Lower", color = color.new(color.orange, transp = 50), linewidth = 2)
+
+fill(p1, p3, title = "Background", color=color.new(color.green, transp = 75))
+fill(p3, p4, title = "Background", color=color.new(color.white, transp = 100))
+fill(p4, p2, title = "Background", color=color.new(color.orange, transp = 75))
+
+bb1Upper = ema(upper1, bbLookback)
+bb1Lower = ema(lower1, bbLookback)
+bb2Upper = ema(upper2, bbLookback)
+bb2Lower = ema(lower2, bbLookback)
+
+bb1Contraction = upper1 < bb1Upper and lower1 > bb1Lower
+bb2Contraction = upper2 < bb2Upper and lower2 > bb2Lower
+ 
+bbLong  = close > upper1
+bbShort = close < lower1
+
+// Net Volume
+higherVolume = volume > volume[1] and volume[1] > volume[2]
+
+squeezeLong  = bb1Contraction and higherVolume and bbLong
+squeezeShort = bb1Contraction and higherVolume and bbShort
+
+trendLong  = emaLong  and bbLong
+trendShort = emaShort and bbShort
+
+long  = trendMode ? trendLong : squeezeLong
+short = trendMode ? trendShort : squeezeShort
+
+// End Algorithm
+
+shortExitPrice = 0.0
+shortStopPrice = 0.0
+
+shortExitPercentPrice = strategy.position_avg_price * (1 - 
+     (shortProfitPercent * riskLevel))
+shortStopPercentPrice = strategy.position_avg_price * (1 + 
+     shortLossPercent)
+
+// Profit & Loss via ATR
+atr = atr(atrLength)
+
+atr := valuewhen(strategy.position_size == 0, atr, 0)
+
+shortExitAtrPrice = strategy.position_avg_price - (atr * 
+     atrMultiplier * riskLevel)
+shortStopAtrPrice = strategy.position_avg_price + (atr * 
+     atrMultiplier)
+
+if tpSlStrategy == "Percent"
+    shortExitPrice := shortExitPercentPrice
+    
+    if trailingStop == "Fixed"
+        shortStopPrice := shortStopPercentPrice
+    else if trailingStop == "Trail"
+        stopValue      = close * (1 + shortLossPercent)
+        shortStopPrice := (strategy.position_size < 0) ? 
+             min(stopValue, shortStopPrice[1]) : 999999
+
+else if tpSlStrategy == "ATR"
+    if strategy.position_size < 0
+        shortExitPrice := shortExitAtrPrice
+        
+    if trailingStop == "Fixed"
+        shortStopPrice := shortStopAtrPrice
+    else if trailingStop == "Trail"
+        stopValue      = close + (atr * atrMultiplier)
+        shortStopPrice := (strategy.position_size < 0) ? 
+             min(stopValue, shortStopPrice[1]) : 999999
+
+// Plotting profit / loss targets
+plot(series = (strategy.position_size < 0) ? shortExitPrice : na, 
+     color = color.green, style = plot.style_linebr, linewidth = 3, 
+     title = "Short Target")
+plot(series = (strategy.position_size < 0) ? shortStopPrice : na, 
+     color = color.red, style = plot.style_linebr, linewidth = 3, 
+     title = "Short Stop Loss")
+
+// Submit entry orders
+if time >= start
+    strategy.entry(id = "Short", long = strategy.short, 
+         comment = "Short Open", when = short)
+
+// Submit exit orders
+strategy.exit(id = "Short", limit = shortExitPrice, stop = shortStopPrice, 
+     comment = "Short Close", when = strategy.position_size < 0)
+strategy.close(id = "Short", comment = "Expired: >" + tostring(maxTimeOpen), 
+     when = (barssince(change(strategy.opentrades)) + 1) >= maxTimeOpen)

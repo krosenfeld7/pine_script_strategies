@@ -1,0 +1,82 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+study(title = "RSI + MACD + BB", shorttitle = "RSI + MACD + BB", overlay = true)
+
+// RSI Section
+len = input(14, minval = 1, title = "RSI Length")
+src = input(close, "RSI Source", type = input.source)
+up = rma(max(change(src), 0), len)
+down = rma(-min(change(src), 0), len)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+
+// MACD Section
+// Getting inputs
+fast_length = input(title = "MACD Fast Length", type = input.integer, defval = 12)
+slow_length = input(title = "MACD Slow Length", type = input.integer, defval = 26)
+src2 = input(title = "MACD Source", type = input.source, defval = close)
+signal_length = input(title = "Signal Smoothing", type = input.integer, minval = 1, maxval = 50, defval = 9)
+sma_source = input(title = "Simple MA (Oscillator)", type = input.bool, defval = false)
+sma_signal = input(title = "Simple MA (Signal Line)", type = input.bool, defval = false)
+// Calculating
+fast_ma = sma_source ? sma(src2, fast_length) : ema(src2, fast_length)
+slow_ma = sma_source ? sma(src2, slow_length) : ema(src2, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal ? sma(macd, signal_length) : ema(macd, signal_length)
+hist = macd - signal
+value = (hist >= 0 ? (hist[1] < hist ? 1 : 3) : (hist[1] < hist ? 2 : 4))
+
+// Bollinger Bands Section
+bollinger_avg_len = 50
+length = input(20, minval = 1)
+src3 = input(close, title = "BB Source")
+mult = input(2.0, minval = 0.001, maxval = 50, title = "BB StdDev")
+basis = sma(src3, length)
+dev = mult * stdev(src3, length)
+upper = basis + dev
+lower = basis - dev
+
+band_width_avg = 0.0
+for i = 0 to bollinger_avg_len
+    band_width_avg += 2 * dev[i]
+
+band_width_avg /= bollinger_avg_len
+band_consolidating = band_width_avg > 2 * dev
+
+// Bullish (Long)
+// RSI goes overbought
+// RSI pullback to below 50 line
+// MACD goes into red value = 4
+// Entry position at green candle and first tick up on MACD value = 2
+// Sideways consolidation
+
+cross70under = crossunder(rsi, 70)
+cross50over = crossover(rsi, 50)
+cross50under = crossunder(rsi, 50)
+
+validLongRSI = barssince((cross50under and barssince(cross50over) > barssince(cross70under))) == 0
+longRSI = (barssince(validLongRSI) < barssince(cross50over)) and (rsi < 50) and not cross50over
+long = (close > open and value[1] == 4 and value == 2 and longRSI and band_consolidating) ? 1 : 0
+
+// Bearish (Short)
+// RSI goes oversold
+// RSI pullback to above 50 line
+// MACD goes into green value = 1
+// Entry position at red candle and first tick down on MACD value = 3
+// Sideways consolidation
+
+cross30over = crossover(rsi, 30)
+
+validShortRSI = barssince((cross50over and barssince(cross50under) > barssince(cross30over))) == 0
+shortRSI = (barssince(validShortRSI) < barssince(cross50under)) and (rsi > 50) and not cross50under
+short = (close < open and value[1] == 1 and value == 3 and shortRSI and band_consolidating) ? 1 : 0
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

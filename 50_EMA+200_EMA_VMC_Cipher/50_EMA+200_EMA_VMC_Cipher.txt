@@ -1,0 +1,82 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+study("50 EMA + 200 EMA + VMC Cipher B", overlay = true)
+
+// EMA section
+len1 = input(50, minval=1, title="Short EMA Length")
+src1 = input(close, title="Short EMA Source")
+len2 = input(200, minval=1, title="Long EMA Length")
+src2 = input(close, title="Long EMA Source")
+lookback = input(title = "Pullback Lookback", defval = 10, minval = 1)
+ema50  = ema(src1, len1)
+ema200 = ema(src2, len2)
+
+plot(ema50, title="Short EMA", color=color.blue, linewidth = 3)
+plot(ema200, title="Long EMA", color=color.white, linewidth = 3)
+
+emaLong  = close > ema200
+emaShort = close < ema200
+
+emaLongPullback  = low[1]  > ema50 and low  < ema50
+emaShortPullback = high[1] < ema50 and high > ema50
+
+emaLong  := barssince(emaLongPullback) < lookback and emaLong
+emaShort := barssince(emaShortPullback) < lookback and emaShort
+
+// Money flow section
+
+rsiMFIperiod = input(60, title = 'MFI Period', type = input.integer)
+rsiMFIMultiplier = input(150, title = 'MFI Area multiplier', type = input.float)
+rsiMFIPosY = input(2.5, title = 'MFI Area Y Pos', type = input.float)
+
+f_rsimfi(_period, _multiplier, _tf) => security(syminfo.tickerid, _tf, sma(((close - open) / (high - low)) * _multiplier, _period) - rsiMFIPosY)
+
+rsiMFI = f_rsimfi(rsiMFIperiod, rsiMFIMultiplier, timeframe.period)
+
+plot(rsiMFI, color = color.new(rsiMFI < 0 ? color.red : color.green, transp=100))
+
+rsiMFILong  = rsiMFI > 0
+rsiMFIShort = rsiMFI < 0
+
+wtChannelLen = input(9, title = 'WT Channel Length', type = input.integer)
+wtAverageLen = input(12, title = 'WT Average Length', type = input.integer)
+wtMASource = input(hlc3, title = 'WT MA Source', type = input.source)
+wtMALen = input(3, title = 'WT MA Length', type = input.integer)
+
+f_wavetrend(src, chlen, avg, malen, tf) =>
+    tfsrc = security(syminfo.tickerid, tf, src)
+    esa = ema(tfsrc, chlen)
+    de = ema(abs(tfsrc - esa), chlen)
+    ci = (tfsrc - esa) / (0.015 * de)
+    wt1 = security(syminfo.tickerid, tf, ema(ci, avg))
+    wt2 = security(syminfo.tickerid, tf, sma(wt1, malen))
+    [wt1, wt2]
+
+[wt1, wt2] = f_wavetrend(wtMASource, wtChannelLen, wtAverageLen, wtMALen, timeframe.period)
+
+wtLong  = wt1 < 0 and wt2 < 0
+wtShort = wt1 > 0 and wt2 > 0
+
+wtCrossUp   = crossover(wt1, wt2)
+wtCrossDown = crossunder(wt1, wt2)
+
+plot(wt1, color = color.new(wtCrossUp ? color.green : color.blue,  transp=100))
+plot(wt2, color = color.new(wtCrossDown ? color.red : color.blue, transp=100))
+
+wtLong  := wtCrossUp and wtLong
+wtShort := wtCrossDown and wtShort
+
+// Computing Strategy
+long  = emaLong  and rsiMFILong  and wtLong
+short = emaShort and rsiMFIShort and wtShort
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

@@ -1,0 +1,40 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+study(title="50 EMA + 200 EMA", shorttitle="50 EMA + 200 EMA", overlay=true)
+// Creating 50 period and 200 period EMAs
+len1 = input(50, minval=1, title="Short EMA Length")
+src1 = input(close, title="Short EMA Source")
+ema50 = ema(src1, len1)
+plot(ema50, title="Short EMA", color=color.blue, linewidth=3)
+len2 = input(200, minval=1, title="Long EMA Length")
+src2 = input(close, title="Long EMA Source")
+ema200 = ema(src2, len2)
+plot(ema200, title="Long EMA", color=color.white, linewidth=3)
+
+// Number of preceding candles to use in algorithm
+lookback = input(title="Lookback", type=input.integer, defval=3, minval=1)
+
+longCondition = (barssince(crossover(close, ema50)) <= lookback) and (close > ema50 and close > open) and ema50 > ema200
+shortCondition = (barssince(crossunder(close, ema50)) <= lookback) and (close < ema50 and close < open) and ema50 < ema200
+
+search_preceding_candles(_cond, _length) =>
+    _found = false
+    for i = 1 to _length
+        if _cond[i]
+            _found := true
+            break
+    _found
+
+long = (longCondition and not search_preceding_candles(longCondition, lookback)) ? 1 : 0
+short = (shortCondition and not search_preceding_candles(longCondition, lookback)) ? 1 : 0
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

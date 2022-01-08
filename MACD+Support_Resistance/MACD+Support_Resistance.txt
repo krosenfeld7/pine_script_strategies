@@ -1,0 +1,91 @@
+//@version=4
+// EMA Section
+study(title="MACD + Support / Resistance", shorttitle="MACD + Support & Resist", overlay=true, max_labels_count = 500)
+
+lookback = input(title = "Pivot Lookback", type = input.integer, defval = 10, minval = 1)
+epsilon  = input(title = "Price Epsilon (%)", type = input.float, defval = 0.5, minval = 0.1)
+emaRes = input(title = "EMA Resolution", type = input.resolution, defval = "D")
+emaSrc = input(title = "EMA Source", type = input.source, defval = close)
+emaLength = input(title = "EMA Length", type = input.integer, defval = 100, minval = 1)
+
+ema100 = ema(emaSrc, emaLength)
+
+ema100Daily = security(syminfo.tickerid, emaRes, ema100[barstate.isrealtime ? 1 : 0], barmerge.gaps_off, barmerge.lookahead_off)
+
+emaLong = close > ema100Daily
+emaShort = close < ema100Daily
+
+plot(ema100Daily, "EMA", color = color.white, linewidth = 2)
+
+epsilon /= 100
+
+// 100 EMA, MACD, previous high or low
+
+prevHigh = pivothigh(close, lookback, lookback)
+prevLow  = pivotlow(close,  lookback, lookback)
+
+// MACD
+// Getting inputs
+macdRes = input(title = "MACD Resolution", type = input.resolution, defval = "30")
+fast_length = input(title="MACD Fast Length", type=input.integer, defval=12)
+slow_length = input(title="MACD Slow Length", type=input.integer, defval=26)
+src = input(title="MACD Source", type=input.source, defval=close)
+signal_length = input(title="MACD Signal Smoothing", type=input.integer, minval = 1, maxval = 50, defval = 9)
+sma_source = input(title="MACD Simple MA (Oscillator)", type=input.bool, defval=false)
+sma_signal = input(title="MACD Simple MA (Signal Line)", type=input.bool, defval=false)
+displayPivots = input(title = "Display Pivot Labels", type = input.bool, defval = false)
+
+// Calculating
+fast_ma = sma_source ? sma(src, fast_length) : ema(src, fast_length)
+slow_ma = sma_source ? sma(src, slow_length) : ema(src, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal ? sma(macd, signal_length) : ema(macd, signal_length)
+hist = macd - signal
+
+macdSec   = security(syminfo.tickerid, macdRes, macd[barstate.isrealtime ? 1 : 0],   barmerge.gaps_off, barmerge.lookahead_off)
+signalSec = security(syminfo.tickerid, macdRes, signal[barstate.isrealtime ? 1 : 0], barmerge.gaps_off, barmerge.lookahead_off)
+
+macdCrossDown = crossunder(macdSec, signalSec)
+macdCrossUp   = crossover(macdSec,  signalSec)
+
+var bool highPointReached = na
+var bool lowPointReached  = na
+
+if (high + (epsilon * high)) >= prevHigh
+    if displayPivots
+        label.new(bar_index, y = na, yloc = yloc.abovebar, color = color.green, style = label.style_triangledown)
+    highPointReached := true
+else
+    highPointReached := na
+if (low - (epsilon * low)) <= prevLow
+    if displayPivots
+        label.new(bar_index, y = na, yloc = yloc.belowbar, color = color.red, style = label.style_triangleup)
+    lowPointReached := true
+else
+    lowPointReached := na
+
+macdPriceLong = false
+macdPriceShort = false
+
+if macdCrossDown and barssince(not na(highPointReached)) < lookback
+    macdPriceShort := true
+
+if macdCrossUp and barssince(not na(lowPointReached)) < lookback
+    macdPriceLong := true
+
+if not na(prevHigh) and displayPivots
+    label.new(bar_index - lookback, y = na, yloc = yloc.abovebar, style = label.style_triangledown)
+if not na(prevLow) and displayPivots
+    label.new(bar_index - lookback, y = na, yloc = yloc.belowbar, style = label.style_triangleup)
+
+long  = macdPriceLong and emaLong
+short = macdPriceShort and emaShort
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

@@ -1,0 +1,98 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+strategy("Strategy Long Template", overlay = true, pyramiding = 0, 
+         margin_long = 100, margin_short = 100, 
+         default_qty_type = strategy.percent_of_equity, 
+         default_qty_value = 20, initial_capital = 2000, 
+         process_orders_on_close = true)
+
+// Set the starting point for backtesting
+start = input(title = "Backtesting Start", type = input.time,
+     defval = timestamp("1 Jan 2015"))
+maxTimeOpen = input(title = "Order Expiration", type = input.integer,
+     defval = 100, minval = 1)
+tpSlStrategy = input(title = "Take Profit Strategy", type = input.string,
+     defval = "Percent", options = ["Percent", "ATR"])
+trailingStop = input(title = "Trailing Stop", type = input.string,
+     defval = "Fixed", options = ["Fixed", "Trail"])
+
+// ATR For Stop Loss
+atrLength = input(title = "ATR SL Length", defval = 14,
+     minval = 1)
+atrMultiplier = input(title = "ATR Multiplier", type = input.float, 
+     defval = 1, minval = 0.1)
+riskLevel = input(title = "Risk Level", type = input.float, 
+     defval = 1, minval = 0.1)
+
+longProfitPercent = input(title = "Take Profit %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+longLossPercent = input(title = "Stop Loss %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+
+// Algorithm / Strategy Goes here
+// Set long variables to execute positions below
+long = 0
+
+
+// End Algorithm
+
+longExitPrice = 0.0
+longStopPrice = 0.0
+
+// Calculating exact prices for stop loss and exit prices
+longExitPercentPrice = strategy.position_avg_price * (1 + 
+     (longProfitPercent * riskLevel))
+longStopPercentPrice = strategy.position_avg_price * (1 - 
+     longLossPercent)
+
+// Profit & Loss via ATR
+atr = atr(atrLength)
+
+atr := valuewhen(strategy.position_size == 0, atr, 0)
+
+longExitAtrPrice = strategy.position_avg_price + (atr * 
+     atrMultiplier * riskLevel)
+longStopAtrPrice = strategy.position_avg_price - (atr * 
+     atrMultiplier)
+
+if tpSlStrategy == "Percent"
+    longExitPrice := longExitPercentPrice
+    
+    if trailingStop == "Fixed"
+        longStopPrice := longStopPercentPrice
+    else if trailingStop == "Trail"
+        stopValue      = close * (1 - longLossPercent)
+        longStopPrice := (strategy.position_size > 0) ? 
+             max(stopValue, longStopPrice[1]) : 0
+
+else if tpSlStrategy == "ATR"
+    if strategy.position_size > 0
+        longExitPrice := longExitAtrPrice
+        
+    if trailingStop == "Fixed"
+        longStopPrice := longStopAtrPrice
+    else if trailingStop == "Trail"
+        stopValue      = close - (atr * atrMultiplier)
+        longStopPrice := (strategy.position_size > 0) ? 
+             max(stopValue, longStopPrice[1]) : 0
+
+// Plotting profit / loss targets
+plot(series = (strategy.position_size > 0) ? longExitPrice : na, 
+     color = color.green, style = plot.style_linebr, 
+     linewidth = 3, title = "Long Target")
+plot(series = (strategy.position_size > 0) ? longStopPrice : na, 
+     color = color.red, style = plot.style_linebr, 
+     linewidth = 3, title = "Long Stop Loss")
+
+// Submit entry orders
+if time >= start
+    strategy.entry(id = "Long", long = strategy.long, 
+         comment = "Long Open", when = long)
+
+// Submit exit orders
+strategy.exit(id = "Long", limit = longExitPrice, stop = longStopPrice, 
+     comment = "Long Close", when = strategy.position_size > 0)
+strategy.close(id = "Long", comment = "Expired: >" + tostring(maxTimeOpen), 
+     when = (barssince(change(strategy.opentrades)) + 1) >= maxTimeOpen)

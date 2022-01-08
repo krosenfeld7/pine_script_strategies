@@ -1,0 +1,69 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+study("20 EMA + 50 EMA + Breakout", shorttitle="20 EMA + 50 EMA + Breakout", overlay=true)
+
+lookback = input(title="Pivot Lookback", type=input.integer, minval=1, defval=7)
+// 20 period EMA
+len1 = input(20, minval=1, title="Short EMA Length")
+src1 = input(close, title="Short EMA Source")
+ema20 = ema(src1, len1)
+plot(ema20, title="Short EMA", color=color.white, linewidth=3)
+
+// 50 period EMA
+len2 = input(50, minval=1, title="Long EMA Length")
+src2 = input(close, title="Long EMA Source")
+ema50 = ema(src2, len2)
+plot(ema50, title="Long EMA", color=color.blue, linewidth=3)
+
+emaLong = ema20 > ema50
+emaShort = ema50 > ema20
+
+pivotHigh = pivothigh(lookback, lookback)
+pivotLow = pivotlow(lookback, lookback)
+
+var float pivotHighPrice = na
+var float pivotLowPrice = na
+
+if not na(pivotHigh)
+    pivotHighPrice := pivotHigh
+if not na(pivotLow)
+    pivotLowPrice := pivotLow
+
+lowestCloseAbove50 = true
+lowestCloseBelow20 = false
+
+for i = 0 to barssince(pivotHigh)
+    if close[i] < ema50[i]
+        lowestCloseAbove50 := false
+    if close[i] < ema20[i]
+        lowestCloseBelow20 := true
+    
+bullishBreakoutValid = close > pivotHighPrice
+
+tempLong = emaLong and lowestCloseAbove50 and lowestCloseBelow20 and bullishBreakoutValid and close > open
+long = tempLong ? 1 : 0
+
+highestCloseBelow50 = true
+highestCloseAbove20 = false
+
+for i = 0 to barssince(pivotLow)
+    if close[i] > ema50[i]
+        highestCloseBelow50 := false
+    if close[i] > ema20[i]
+        highestCloseAbove20 := true
+        
+bearishBreakoutValid = close < pivotLowPrice
+
+tempShort = emaShort and highestCloseBelow50 and highestCloseAbove20 and bearishBreakoutValid and close < open
+short = tempShort ? 1 : 0
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

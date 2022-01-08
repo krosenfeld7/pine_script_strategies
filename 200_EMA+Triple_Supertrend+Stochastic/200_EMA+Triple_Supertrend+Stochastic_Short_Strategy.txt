@@ -1,0 +1,169 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+strategy("200 EMA + Stochastic + Triple Supertrend Short Strategy (Not Good)", overlay = true, pyramiding = 0, 
+         margin_long = 100, margin_short = 100, default_qty_type = strategy.percent_of_equity, 
+         default_qty_value = 20, initial_capital = 2000, process_orders_on_close = true)
+
+// Set the starting point for backtesting
+start = input(title="Backtesting Start", type=input.time, defval=timestamp("1 Jan 2015"))
+// Expiration time on orders
+maxTimeOpen = input(title="Order Expiration", type=input.integer, defval=100, minval=1)
+stopLossMethod = input(title="Stop Loss Method?", type=input.string, options=["Trend Lines", "Percent %", "ATR"], defval="Trend Lines")
+risk_level = input(title="Risk Level", type=input.float, defval=1.5, minval=0.1)
+
+// Algorithm / Strategy Goes here
+// Set short variables to execute positions below
+// 200 period EMA Section
+len1 = input(200, minval=1, title="EMA Length")
+src1 = input(close, title="EMA Source")
+offset = input(title="EMA Offset", type=input.integer, defval=0, minval=-500, maxval=500)
+ema200 = ema(src1, len1)
+plot(ema200, title="EMA", color=color.white, offset=offset, linewidth=3)
+
+emaLong = close > ema200
+emaShort = close < ema200
+
+// Stochastic RSI Section
+smoothK = input(3, "Stochastic K", minval=1)
+smoothD = input(3, "Stochastic D", minval=1)
+lengthRSI = input(14, "RSI Length", minval=1)
+lengthStoch = input(14, "Stochastic Length", minval=1)
+src2 = input(close, title="RSI Source")
+rsi1 = rsi(src2, lengthRSI)
+k = sma(stoch(rsi1, rsi1, rsi1, lengthStoch), smoothK)
+d = sma(k, smoothD)
+
+stoLong = k < 20 and d < 20 and crossover(k, d)
+stoShort = k > 80 and d > 80 and crossunder(k, d)
+
+// Supertrend 1: Settings: ATR Period = 12, Multiplier = 3
+Periods1 = input(title="Long ATR Period", type=input.integer, defval=12)
+src3 = input(hl2, title="ATR Source")
+Multiplier1 = input(title="Long ATR Multiplier", type=input.float, step=0.1, defval=3.0)
+changeATR= input(title="Change Long ATR Calculation Method ?", type=input.bool, defval=true)
+atr2 = sma(tr, Periods1)
+atr1= changeATR ? atr(Periods1) : atr2
+up=src3-(Multiplier1*atr1)
+up1 = nz(up[1],up)
+up := close[1] > up1 ? max(up,up1) : up
+dn=src3+(Multiplier1*atr1)
+dn1 = nz(dn[1], dn)
+dn := close[1] < dn1 ? min(dn, dn1) : dn
+trend1 = 1
+trend1 := nz(trend1[1], trend1)
+trend1 := trend1 == -1 and close > dn1 ? 1 : trend1 == 1 and close < up1 ? -1 : trend1
+
+// Supertrend 2: Settings: ATR Period = 11, Multiplier = 2
+Periods2 = input(title="Intermediate ATR Period", type=input.integer, defval=11)
+Multiplier2 = input(title="Intermediate ATR Multiplier", type=input.float, step=0.1, defval=2.0)
+atr4 = sma(tr, Periods2)
+atr3= changeATR ? atr(Periods2) : atr4
+up2=src3-(Multiplier2*atr3)
+up3 = nz(up2[1],up2)
+up2 := close[1] > up3 ? max(up2,up3) : up2
+dn2=src3+(Multiplier2*atr3)
+dn3 = nz(dn2[1], dn2)
+dn2 := close[1] < dn3 ? min(dn2, dn3) : dn2
+trend2 = 1
+trend2 := nz(trend2[1], trend2)
+trend2 := trend2 == -1 and close > dn3 ? 1 : trend2 == 1 and close < up3 ? -1 : trend2
+
+// Supertrend 3: Settings: ATR Period = 10, Multiplier = 1
+Periods3 = input(title="Short ATR Period", type=input.integer, defval=10)
+Multiplier3 = input(title="Short ATR Multiplier", type=input.float, step=0.1, defval=1.0)
+atr6 = sma(tr, Periods3)
+atr5= changeATR ? atr(Periods3) : atr6
+up4=src3-(Multiplier3*atr5)
+up5 = nz(up4[1],up4)
+up4 := close[1] > up5 ? max(up4,up5) : up4
+dn4=src3+(Multiplier3*atr5)
+dn5 = nz(dn4[1], dn4)
+dn4 := close[1] < dn5 ? min(dn4, dn5) : dn4
+trend3 = 1
+trend3 := nz(trend3[1], trend3)
+trend3 := trend3 == -1 and close > dn5 ? 1 : trend3 == 1 and close < up5 ? -1 : trend3
+
+// Bearish (Short)
+// Price < 200 EMA
+// Stochastic > 80 (overbought) with K crossdown
+// Case 1: At least 2 supertrend lines above price (close), supertrend lines are dnPlot, dnPlot2, dnPlot3
+// Case 2: If only 1 supertrend line above price:
+//         Wait until 2 supertrend lines above and enter, but only if Stochastic (either k or d) > 50
+// Stop loss at 2 supertrend lines above price
+
+shortPlot1 = trend1 == 1 ? na : dn
+shortPlot2 = trend2 == 1 ? na : dn2
+shortPlot3 = trend3 == 1 ? na : dn4
+shortValid1 = not na(shortPlot1) and close < shortPlot1
+shortValid2 = not na(shortPlot2) and close < shortPlot2
+shortValid3 = not na(shortPlot3) and close < shortPlot3
+shortValidNum = 0
+shortValidNum += shortValid1 ? 1 : 0
+shortValidNum += shortValid2 ? 1 : 0
+shortValidNum += shortValid3 ? 1 : 0
+
+// Case 1: 1 supertrend line is above price
+conditionallyValidShort = shortValidNum == 1 and stoShort and emaShort
+
+// Case 2: 2 supertrend lines are above price
+superShort = (shortValid1 and shortValid2) or (shortValid1 and shortValid3) or (shortValid2 and shortValid3)
+tempShort = emaShort and stoShort and superShort
+
+// Case 1: EMA is valid, stochastic is not, but still greater than 50 and there are now 2 supertrend lines
+if emaShort and (not stoShort and (d > 50 or k > 50)) and (superShort and barssince(conditionallyValidShort) < 10)
+    tempShort := true
+
+short = tempShort ? 1 : 0
+
+// Average True Range
+length = input(title="ATR Length", defval=14, minval=1)
+atrMultiplier = input(title="ATR Multiplier", type=input.float, defval=1, minval=0.1)
+atr = atr(length)
+
+shortProfitPercent = input(title = "Profit %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+shortLossPercent = input(title = "Loss %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+
+var float shortStopPrice = na
+var float shortExitPrice = na
+
+// Compute stop loss and targets only if trade isn't open yet
+if tempShort and strategy.opentrades == 0 and stopLossMethod == "Trend Lines"
+    if shortValidNum == 2
+        if na(shortPlot1)
+            shortStopPrice := max(shortPlot2, shortPlot3)
+        else if na(shortPlot2)
+            shortStopPrice := max(shortPlot1, shortPlot3)
+        else
+            shortStopPrice := max(shortPlot1, shortPlot2)
+    else
+        shortMin = min(shortPlot1, min(shortPlot2, shortPlot3))
+        shortMax = max(shortPlot1, max(shortPlot2, shortPlot3))
+        shortStopPrice := shortPlot1 + shortPlot2 + shortPlot3 - shortMin - shortMax
+        
+    shortExitPrice := close - ((shortStopPrice - close) * risk_level)
+    
+else if stopLossMethod == "Percent %"
+    // Calculating exact prices for stop loss and exit prices
+    shortExitPrice := strategy.position_avg_price * (1 - shortProfitPercent)
+    shortStopPrice := strategy.position_avg_price * (1 + shortLossPercent)
+    
+else if stopLossMethod == "ATR"
+    // Profit & Loss via ATR
+    shortExitPrice := strategy.position_avg_price - atr * atrMultiplier
+    shortStopPrice := strategy.position_avg_price + atr * atrMultiplier
+
+// Plotting profit / loss targets
+plot(series = (strategy.position_size < 0) ? shortExitPrice : na, color = #33b802, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Short Target")
+plot(series = (strategy.position_size < 0) ? shortStopPrice : na, color = #ff0900, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Short Stop Loss")
+
+// Submit entry orders
+if time >= start
+    strategy.entry(id = "Short", long = strategy.short, comment = "Short Open", when = short)
+
+// Submit exit orders
+strategy.exit(id = "Short", limit = shortExitPrice, stop = shortStopPrice, comment = "Short Close", when = strategy.position_size < 0)
+strategy.close(id = "Short", comment = "Expired: >" + tostring(maxTimeOpen), when = (barssince(change(strategy.opentrades)) + 1) >= maxTimeOpen)

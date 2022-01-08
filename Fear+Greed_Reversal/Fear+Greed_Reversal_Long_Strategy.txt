@@ -1,0 +1,100 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+strategy("Fear + Greed Reversal Long Strategy (Daily)", overlay = true, pyramiding = 0, 
+         margin_long = 100, margin_short = 100, default_qty_type = strategy.percent_of_equity, 
+         default_qty_value = 20, initial_capital = 2000, process_orders_on_close = true)
+
+// Set the starting point for backtesting
+start = input(title="Backtesting Start", type=input.time, defval=timestamp("1 Jan 2015"))
+// Expiration time on orders
+maxTimeOpen = input(title="Order Expiration", type=input.integer, defval=100, minval=1)
+useAtr = input(title="Use ATR?", type=input.bool, defval=false)
+
+// Algorithm / Strategy Goes here
+// Set long / short variables to execute positions below
+// Fear & Greed Section
+lowPeriod = input(30, title="Low Period")
+highPeriod = input(30, title="High Period")
+stdev_period = input(50, title="Stdev Period")
+src = input(ohlc4, title="Source")
+WMA = input(false, title="Use WMA instead of SMA?")
+
+// Condition One 
+greedZone1 = (lowest(src, lowPeriod) - src) / lowest(src, lowPeriod)
+greedAvg1 = WMA ? wma(greedZone1, stdev_period) : sma(greedZone1, stdev_period)
+greedZoneLimit1 = greedAvg1 - stdev(greedZone1, stdev_period)
+
+fearZone1 = (highest(src, highPeriod) - src) / highest(src, highPeriod)
+fearAvg1 = WMA ? wma(fearZone1, stdev_period) : sma(fearZone1, stdev_period)
+fearZoneLimit1 = fearAvg1 + stdev(fearZone1, stdev_period)
+
+// Condition Two
+greedZone2 = WMA ? wma(src, lowPeriod) : sma(src, lowPeriod)
+greedAvg2 = WMA ? wma(greedZone2, stdev_period) : sma(greedZone2, stdev_period)
+greedZoneLimit2 = greedAvg2 + stdev(greedZone2, stdev_period)
+
+fearZone2 = WMA ? wma(src, highPeriod) : sma(src, highPeriod)
+fearAvg2 = WMA ? wma(fearZone2, stdev_period) : sma(fearZone2, stdev_period)
+fearZoneLimit2 = fearAvg2 - stdev(fearZone2, stdev_period)
+
+// GreedZone
+inGreedZone = greedZone1 < greedZoneLimit1 and greedZone2 > greedZoneLimit2 
+greedZoneOpen = inGreedZone ? low - tr : na
+greedZoneClose = inGreedZone ? low - 2 * tr : na
+
+inFearZone = fearZone1 > fearZoneLimit1 and fearZone2 < fearZoneLimit2
+fearZoneOpen = inFearZone ? low - tr : na
+fearZoneClose = inFearZone ? low - 2 * tr : na
+
+greedGap = inGreedZone ? greedZoneOpen - greedZoneClose : na
+fearGap = inFearZone ? fearZoneOpen - fearZoneClose : na
+
+// Fear / Greed Trend reversing
+greedy = not na(greedGap) ? greedGap > 0 : false
+noLongerGreedy = (greedy[1] == true and greedy == false) ? 1 : 0
+fearful = not na(fearGap) ? fearGap > 0 : false
+noLongerFearful = (fearful[1] == true and fearful == false) ? 1 : 0
+
+// Extreme cases
+extremeFear = (fearGap > fearZoneClose) ? 1 : 0
+extremeGreed = (greedGap > greedZoneClose) ? 1 : 0
+
+long = (greedy[2] == false and greedy[1] == true and greedy == true) ? 1 : 0
+
+plot(greedGap, color=color.purple, style=plot.style_linebr)
+plotcandle(greedZoneOpen, greedZoneOpen, greedZoneClose, greedZoneClose, color=color.red, bordercolor=color.white,  title="Greedy Candlesticks")
+
+plot(fearGap, color=color.aqua, style=plot.style_linebr)
+plotcandle(fearZoneOpen, fearZoneOpen, fearZoneClose, fearZoneClose, color=color.blue, bordercolor=color.white,  title="Fearful Candlesticks")
+
+// Average True Range
+length = input(title="ATR Length", defval=14, minval=1)
+atrMultiplier = input(title="ATR Multiplier", type=input.float, defval=1, minval=0.1)
+atr = atr(length)
+
+longProfitPercent = input(title = "Profit %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 40) / 100
+longLossPercent = input(title = "Loss %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 30) / 100
+
+// Calculating exact prices for stop loss and exit prices
+longExitPercentPrice = strategy.position_avg_price * (1 + longProfitPercent)
+longStopPercentPrice = strategy.position_avg_price * (1 - longLossPercent)
+
+// Profit & Loss via ATR
+longExitPrice = useAtr ? strategy.position_avg_price + atr * atrMultiplier : longExitPercentPrice
+longStopPrice = useAtr ? strategy.position_avg_price - atr * atrMultiplier : longStopPercentPrice
+
+// Plotting profit / loss targets
+plot(series = (strategy.position_size > 0) ? longExitPrice : na, color = color.green, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Long Target")
+plot(series = (strategy.position_size > 0) ? longStopPrice : na, color = color.red, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Long Stop Loss")
+
+// Submit entry orders
+if time >= start
+    strategy.entry(id = "Long", long = strategy.long, comment = "Long Open", when = long)
+
+// Submit exit orders
+strategy.exit(id = "Long", limit = longExitPrice, stop = longStopPrice, comment = "Long Close", when = strategy.position_size > 0)
+strategy.close(id = "Long", comment = "Expired: >" + tostring(maxTimeOpen), when = (barssince(change(strategy.opentrades)) + 1) >= maxTimeOpen)

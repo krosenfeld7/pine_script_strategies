@@ -1,0 +1,34 @@
+//@version=4
+// EMA Section
+study(title="2 EMAs + RSI + Stochastic", shorttitle="2 EMAs + RSI + Stochastic", overlay=true)
+
+ema50  = ema(close, 50)
+ema200 = ema(close, 200)
+
+emaLong  = ema50 > ema200 and close > ema50
+emaShort = ema50 < ema200 and close < ema50
+
+k = sma(stoch(close, high, low, 14), 3)
+d = sma(k, 3)
+
+stoLong  = crossover(k, d)
+stoShort = crossover(d, k)
+
+up = rma(max(change(close), 0), 14)
+down = rma(-min(change(close), 0), 14)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+
+rsiLong  = rsi < 50
+rsiShort = rsi > 50
+
+long  = emaLong  and stoLong  and rsiLong
+short = emaShort and stoShort and rsiShort
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

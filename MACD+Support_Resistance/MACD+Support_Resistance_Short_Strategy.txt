@@ -1,0 +1,173 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+strategy("MACD + Support / Resistance Short Strategy", overlay = true, pyramiding = 0, 
+         margin_long = 100, margin_short = 100, 
+         default_qty_type = strategy.percent_of_equity, 
+         default_qty_value = 20, initial_capital = 2000, 
+         process_orders_on_close = true)
+
+// Set the starting point for backtesting
+start = input(title = "Backtesting Start", type = input.time,
+     defval = timestamp("1 Jan 2015"))
+maxTimeOpen = input(title = "Order Expiration", type = input.integer,
+     defval = 100, minval = 1)
+tpSlStrategy = input(title = "Take Profit Strategy", type = input.string,
+     defval = "Percent", options = ["Percent", "ATR"])
+trailingStop = input(title = "Trailing Stop", type = input.string,
+     defval = "Fixed", options = ["Fixed", "Trail"])
+
+// ATR For Stop Loss
+atrLength = input(title = "ATR SL Length", defval = 14,
+     minval = 1)
+atrMultiplier = input(title = "ATR Multiplier", type = input.float, 
+     defval = 1, minval = 0.1)
+riskLevel = input(title = "Risk Level", type = input.float, 
+     defval = 1, minval = 0.1)
+
+shortProfitPercent = input(title = "Take Profit %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+shortLossPercent = input(title = "Stop Loss %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+
+// Algorithm / Strategy Goes here
+// Set short variables to execute positions below
+lookback = input(title = "Pivot Lookback", type = input.integer, defval = 10, minval = 1)
+epsilon  = input(title = "Price Epsilon (%)", type = input.float, defval = 0.5, minval = 0.1)
+emaRes = input(title = "EMA Resolution", type = input.resolution, defval = "D")
+emaSrc = input(title = "EMA Source", type = input.source, defval = close)
+emaLength = input(title = "EMA Length", type = input.integer, defval = 100, minval = 1)
+
+ema100 = ema(emaSrc, emaLength)
+
+ema100Daily = security(syminfo.tickerid, emaRes, ema100[barstate.isrealtime ? 1 : 0], barmerge.gaps_off, barmerge.lookahead_off)
+
+emaLong = close > ema100Daily
+emaShort = close < ema100Daily
+
+plot(ema100Daily, "EMA", color = color.white, linewidth = 2)
+
+epsilon /= 100
+
+// 100 EMA, MACD, previous high or low
+
+prevHigh = pivothigh(close, lookback, lookback)
+prevLow  = pivotlow(close,  lookback, lookback)
+
+// MACD
+// Getting inputs
+macdRes = input(title = "MACD Resolution", type = input.resolution, defval = "30")
+fast_length = input(title="MACD Fast Length", type=input.integer, defval=12)
+slow_length = input(title="MACD Slow Length", type=input.integer, defval=26)
+src = input(title="MACD Source", type=input.source, defval=close)
+signal_length = input(title="MACD Signal Smoothing", type=input.integer, minval = 1, maxval = 50, defval = 9)
+sma_source = input(title="MACD Simple MA (Oscillator)", type=input.bool, defval=false)
+sma_signal = input(title="MACD Simple MA (Signal Line)", type=input.bool, defval=false)
+displayPivots = input(title = "Display Pivot Labels", type = input.bool, defval = false)
+
+// Calculating
+fast_ma = sma_source ? sma(src, fast_length) : ema(src, fast_length)
+slow_ma = sma_source ? sma(src, slow_length) : ema(src, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal ? sma(macd, signal_length) : ema(macd, signal_length)
+hist = macd - signal
+
+macdSec   = security(syminfo.tickerid, macdRes, macd[barstate.isrealtime ? 1 : 0],   barmerge.gaps_off, barmerge.lookahead_off)
+signalSec = security(syminfo.tickerid, macdRes, signal[barstate.isrealtime ? 1 : 0], barmerge.gaps_off, barmerge.lookahead_off)
+
+macdCrossDown = crossunder(macdSec, signalSec)
+macdCrossUp   = crossover(macdSec,  signalSec)
+
+var bool highPointReached = na
+var bool lowPointReached  = na
+
+if (high + (epsilon * high)) >= prevHigh
+    if displayPivots
+        label.new(bar_index, y = na, yloc = yloc.abovebar, color = color.green, style = label.style_triangledown)
+    highPointReached := true
+else
+    highPointReached := na
+if (low - (epsilon * low)) <= prevLow
+    if displayPivots
+        label.new(bar_index, y = na, yloc = yloc.belowbar, color = color.red, style = label.style_triangleup)
+    lowPointReached := true
+else
+    lowPointReached := na
+
+macdPriceLong = false
+macdPriceShort = false
+
+if macdCrossDown and barssince(not na(highPointReached)) < lookback
+    macdPriceShort := true
+
+if macdCrossUp and barssince(not na(lowPointReached)) < lookback
+    macdPriceLong := true
+
+if not na(prevHigh) and displayPivots
+    label.new(bar_index - lookback, y = na, yloc = yloc.abovebar, style = label.style_triangledown)
+if not na(prevLow) and displayPivots
+    label.new(bar_index - lookback, y = na, yloc = yloc.belowbar, style = label.style_triangleup)
+
+long  = macdPriceLong and emaLong
+short = macdPriceShort and emaShort
+
+// End Algorithm
+
+shortExitPrice = 0.0
+shortStopPrice = 0.0
+
+shortExitPercentPrice = strategy.position_avg_price * (1 - 
+     (shortProfitPercent * riskLevel))
+shortStopPercentPrice = strategy.position_avg_price * (1 + 
+     shortLossPercent)
+
+// Profit & Loss via ATR
+atr = atr(atrLength)
+
+atr := valuewhen(strategy.position_size == 0, atr, 0)
+
+shortExitAtrPrice = strategy.position_avg_price - (atr * 
+     atrMultiplier * riskLevel)
+shortStopAtrPrice = strategy.position_avg_price + (atr * 
+     atrMultiplier)
+
+if tpSlStrategy == "Percent"
+    shortExitPrice := shortExitPercentPrice
+    
+    if trailingStop == "Fixed"
+        shortStopPrice := shortStopPercentPrice
+    else if trailingStop == "Trail"
+        stopValue      = close * (1 + shortLossPercent)
+        shortStopPrice := (strategy.position_size < 0) ? 
+             min(stopValue, shortStopPrice[1]) : 999999
+
+else if tpSlStrategy == "ATR"
+    if strategy.position_size < 0
+        shortExitPrice := shortExitAtrPrice
+        
+    if trailingStop == "Fixed"
+        shortStopPrice := shortStopAtrPrice
+    else if trailingStop == "Trail"
+        stopValue      = close + (atr * atrMultiplier)
+        shortStopPrice := (strategy.position_size < 0) ? 
+             min(stopValue, shortStopPrice[1]) : 999999
+
+// Plotting profit / loss targets
+plot(series = (strategy.position_size < 0) ? shortExitPrice : na, 
+     color = color.green, style = plot.style_linebr, linewidth = 3, 
+     title = "Short Target")
+plot(series = (strategy.position_size < 0) ? shortStopPrice : na, 
+     color = color.red, style = plot.style_linebr, linewidth = 3, 
+     title = "Short Stop Loss")
+
+// Submit entry orders
+if time >= start
+    strategy.entry(id = "Short", long = strategy.short, 
+         comment = "Short Open", when = short)
+
+// Submit exit orders
+strategy.exit(id = "Short", limit = shortExitPrice, stop = shortStopPrice, 
+     comment = "Short Close", when = strategy.position_size < 0)
+strategy.close(id = "Short", comment = "Expired: >" + tostring(maxTimeOpen), 
+     when = (barssince(change(strategy.opentrades)) + 1) >= maxTimeOpen)

@@ -1,0 +1,162 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+strategy("MTF EMA + MACD Short Strategy", overlay = true, pyramiding = 0, 
+         margin_long = 100, margin_short = 100, 
+         default_qty_type = strategy.percent_of_equity, 
+         default_qty_value = 20, initial_capital = 2000, 
+         process_orders_on_close = true)
+
+// Set the starting point for backtesting
+start = input(title = "Backtesting Start", type = input.time,
+     defval = timestamp("1 Jan 2015"))
+maxTimeOpen = input(title = "Order Expiration", type = input.integer,
+     defval = 100, minval = 1)
+tpSlStrategy = input(title = "Take Profit Strategy", type = input.string,
+     defval = "Percent", options = ["Percent", "ATR"])
+trailingStop = input(title = "Trailing Stop", type = input.string,
+     defval = "Fixed", options = ["Fixed", "Trail"])
+
+// ATR For Stop Loss
+atrLength = input(title = "ATR SL Length", defval = 14,
+     minval = 1)
+atrMultiplier = input(title = "ATR Multiplier", type = input.float, 
+     defval = 1, minval = 0.1)
+riskLevel = input(title = "Risk Level", type = input.float, 
+     defval = 1, minval = 0.1)
+
+shortProfitPercent = input(title = "Take Profit %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+shortLossPercent = input(title = "Stop Loss %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+
+// Algorithm / Strategy Goes here
+// Set short variables to execute positions below
+// MTF EMA 1
+mtfShort = input(title="Short MTF EMA", type=input.resolution, defval="15")
+maShort_length = input(title = "Short EMA Period", defval = 50, minval = 1)
+maShort = security(syminfo.tickerid, mtfShort, ema(close, maShort_length)[barstate.isrealtime ? 1 : 0])
+
+// MTF EMA 2
+mtfLong = input(title="Long MTF EMA", type=input.resolution, defval="60")
+maLong_length = input(title = "Long EMA Period", defval = 50, minval = 1)
+maLong = security(syminfo.tickerid, mtfLong, ema(close, maLong_length)[barstate.isrealtime ? 1 : 0])
+
+pEma50  = plot(maShort, title="Short MTF EMA", color=color.white, linewidth=2)
+pEma200 = plot(maLong,  title="Long MTF EMA", color=color.orange, linewidth=2)
+
+emaLong  = maShort > maLong
+emaShort = maShort < maLong
+
+// MACD Section
+fast_length = input(title="Fast MACD Length", type=input.integer, defval=12)
+slow_length = input(title="Slow MACD Length", type=input.integer, defval=26)
+macdSrc = input(title="MACD Source", type=input.source, defval=close)
+signal_length = input(title="MACD Signal Smoothing", type=input.integer, minval = 1, maxval = 50, defval = 9)
+sma_source = input(title="MACD Simple MA (Oscillator)", type=input.bool, defval=false)
+sma_signal = input(title="MACD Simple MA (Signal Line)", type=input.bool, defval=false)
+
+// Calculating
+fast_ma = sma_source ? sma(macdSrc, fast_length) : ema(macdSrc, fast_length)
+slow_ma = sma_source ? sma(macdSrc, slow_length) : ema(macdSrc, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal ? sma(macd, signal_length) : ema(macd, signal_length)
+hist = macd - signal
+
+macdCrossDn = crossunder(macd, signal)
+macdCrossUp = crossover(macd,  signal)
+
+macdCross0 = cross(macd,   0)
+sigCross0  = cross(signal, 0)
+
+varip longCrossCount  = 0
+varip shortCrossCount = 0
+
+if macdCrossDn
+    longCrossCount += 1
+
+if longCrossCount == 1 and macdCrossUp
+    longCrossCount += 1
+
+if longCrossCount == 2 and macdCrossDn
+    longCrossCount += 1
+
+if macdCross0 or sigCross0 or macd > 0 or signal > 0
+    longCrossCount := 0
+
+if macdCrossUp
+    shortCrossCount += 1
+
+if longCrossCount == 1 and macdCrossDn
+    shortCrossCount += 1
+
+if longCrossCount == 2 and macdCrossUp
+    shortCrossCount += 1
+
+if macdCross0 or sigCross0 or macd < 0 or signal < 0
+    shortCrossCount := 0
+
+long  = emaLong  and longCrossCount == 3
+short = emaShort and shortCrossCount == 3
+
+
+// End Algorithm
+
+shortExitPrice = 0.0
+shortStopPrice = 0.0
+
+shortExitPercentPrice = strategy.position_avg_price * (1 - 
+     (shortProfitPercent * riskLevel))
+shortStopPercentPrice = strategy.position_avg_price * (1 + 
+     shortLossPercent)
+
+// Profit & Loss via ATR
+atr = atr(atrLength)
+
+atr := valuewhen(strategy.position_size == 0, atr, 0)
+
+shortExitAtrPrice = strategy.position_avg_price - (atr * 
+     atrMultiplier * riskLevel)
+shortStopAtrPrice = strategy.position_avg_price + (atr * 
+     atrMultiplier)
+
+if tpSlStrategy == "Percent"
+    shortExitPrice := shortExitPercentPrice
+    
+    if trailingStop == "Fixed"
+        shortStopPrice := shortStopPercentPrice
+    else if trailingStop == "Trail"
+        stopValue      = close * (1 + shortLossPercent)
+        shortStopPrice := (strategy.position_size < 0) ? 
+             min(stopValue, shortStopPrice[1]) : 999999
+
+else if tpSlStrategy == "ATR"
+    if strategy.position_size < 0
+        shortExitPrice := shortExitAtrPrice
+        
+    if trailingStop == "Fixed"
+        shortStopPrice := shortStopAtrPrice
+    else if trailingStop == "Trail"
+        stopValue      = close + (atr * atrMultiplier)
+        shortStopPrice := (strategy.position_size < 0) ? 
+             min(stopValue, shortStopPrice[1]) : 999999
+
+// Plotting profit / loss targets
+plot(series = (strategy.position_size < 0) ? shortExitPrice : na, 
+     color = color.green, style = plot.style_linebr, linewidth = 3, 
+     title = "Short Target")
+plot(series = (strategy.position_size < 0) ? shortStopPrice : na, 
+     color = color.red, style = plot.style_linebr, linewidth = 3, 
+     title = "Short Stop Loss")
+
+// Submit entry orders
+if time >= start
+    strategy.entry(id = "Short", long = strategy.short, 
+         comment = "Short Open", when = short)
+
+// Submit exit orders
+strategy.exit(id = "Short", limit = shortExitPrice, stop = shortStopPrice, 
+     comment = "Short Close", when = strategy.position_size < 0)
+strategy.close(id = "Short", comment = "Expired: >" + tostring(maxTimeOpen), 
+     when = (barssince(change(strategy.opentrades)) + 1) >= maxTimeOpen)

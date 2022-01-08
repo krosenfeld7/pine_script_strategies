@@ -1,0 +1,168 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+study("200 EMA + Stochastic + Triple Supertrend", shorttitle="200 EMA + Stochastic + Triple Supertrend", overlay=true)
+// 200 period EMA Section
+len1 = input(200, minval=1, title="EMA Length")
+src1 = input(close, title="EMA Source")
+offset = input(title="EMA Offset", type=input.integer, defval=0, minval=-500, maxval=500)
+ema200 = ema(src1, len1)
+plot(ema200, title="EMA", color=color.white, offset=offset, linewidth=3)
+
+emaLong = close > ema200
+emaShort = close < ema200
+
+// Stochastic RSI Section
+smoothK = input(3, "Stochastic K", minval=1)
+smoothD = input(3, "Stochastic D", minval=1)
+lengthRSI = input(14, "RSI Length", minval=1)
+lengthStoch = input(14, "Stochastic Length", minval=1)
+src2 = input(close, title="RSI Source")
+rsi1 = rsi(src2, lengthRSI)
+k = sma(stoch(rsi1, rsi1, rsi1, lengthStoch), smoothK)
+d = sma(k, smoothD)
+
+stoLong = k < 20 and d < 20 and crossover(k, d)
+stoShort = k > 80 and d > 80 and crossunder(k, d)
+
+// Supertrend 1: Settings: ATR Period = 12, Multiplier = 3
+Periods1 = input(title="Long ATR Period", type=input.integer, defval=12)
+src3 = input(hl2, title="ATR Source")
+Multiplier1 = input(title="Long ATR Multiplier", type=input.float, step=0.1, defval=3.0)
+changeATR= input(title="Change Long ATR Calculation Method ?", type=input.bool, defval=true)
+atr2 = sma(tr, Periods1)
+atr1= changeATR ? atr(Periods1) : atr2
+up=src3-(Multiplier1*atr1)
+up1 = nz(up[1],up)
+up := close[1] > up1 ? max(up,up1) : up
+dn=src3+(Multiplier1*atr1)
+dn1 = nz(dn[1], dn)
+dn := close[1] < dn1 ? min(dn, dn1) : dn
+trend1 = 1
+trend1 := nz(trend1[1], trend1)
+trend1 := trend1 == -1 and close > dn1 ? 1 : trend1 == 1 and close < up1 ? -1 : trend1
+upPlot = plot(trend1 == 1 ? up : na, title="Up Trend", style=plot.style_linebr, linewidth=2, color=color.green)
+buySignal = trend1 == 1 and trend1[1] == -1
+plotshape(buySignal ? up : na, title="UpTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=color.green, transp=0)
+dnPlot = plot(trend1 == 1 ? na : dn, title="Down Trend", style=plot.style_linebr, linewidth=2, color=color.red)
+sellSignal = trend1 == -1 and trend1[1] == 1
+plotshape(sellSignal ? dn : na, title="DownTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=color.red, transp=0)
+mPlot = plot(ohlc4, title="Open/High/Low/Close", style=plot.style_circles, linewidth=0)
+
+// Supertrend 2: Settings: ATR Period = 11, Multiplier = 2
+Periods2 = input(title="Intermediate ATR Period", type=input.integer, defval=11)
+Multiplier2 = input(title="Intermediate ATR Multiplier", type=input.float, step=0.1, defval=2.0)
+atr4 = sma(tr, Periods2)
+atr3= changeATR ? atr(Periods2) : atr4
+up2=src3-(Multiplier2*atr3)
+up3 = nz(up2[1],up2)
+up2 := close[1] > up3 ? max(up2,up3) : up2
+dn2=src3+(Multiplier2*atr3)
+dn3 = nz(dn2[1], dn2)
+dn2 := close[1] < dn3 ? min(dn2, dn3) : dn2
+trend2 = 1
+trend2 := nz(trend2[1], trend2)
+trend2 := trend2 == -1 and close > dn3 ? 1 : trend2 == 1 and close < up3 ? -1 : trend2
+upPlot2 = plot(trend2 == 1 ? up2 : na, title="Up Trend", style=plot.style_linebr, linewidth=2, color=color.green)
+buySignal2 = trend2 == 1 and trend2[1] == -1
+plotshape(buySignal2 ? up2 : na, title="UpTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=color.green, transp=0)
+dnPlot2 = plot(trend2 == 1 ? na : dn2, title="Down Trend", style=plot.style_linebr, linewidth=2, color=color.red)
+sellSignal2 = trend2 == -1 and trend2[1] == 1
+plotshape(sellSignal2 ? dn2 : na, title="DownTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=color.red, transp=0)
+mPlot2 = plot(ohlc4, title="Open/High/Low/Close", style=plot.style_circles, linewidth=0)
+
+// Supertrend 3: Settings: ATR Period = 10, Multiplier = 1
+Periods3 = input(title="Short ATR Period", type=input.integer, defval=10)
+Multiplier3 = input(title="Short ATR Multiplier", type=input.float, step=0.1, defval=1.0)
+atr6 = sma(tr, Periods3)
+atr5= changeATR ? atr(Periods3) : atr6
+up4=src3-(Multiplier3*atr5)
+up5 = nz(up4[1],up4)
+up4 := close[1] > up5 ? max(up4,up5) : up4
+dn4=src3+(Multiplier3*atr5)
+dn5 = nz(dn4[1], dn4)
+dn4 := close[1] < dn5 ? min(dn4, dn5) : dn4
+trend3 = 1
+trend3 := nz(trend3[1], trend3)
+trend3 := trend3 == -1 and close > dn5 ? 1 : trend3 == 1 and close < up5 ? -1 : trend3
+upPlot3 = plot(trend3 == 1 ? up4 : na, title="Up Trend", style=plot.style_linebr, linewidth=2, color=color.green)
+buySignal3 = trend3 == 1 and trend3[1] == -1
+plotshape(buySignal3 ? up4 : na, title="UpTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=color.green, transp=0)
+dnPlot3 = plot(trend3 == 1 ? na : dn4, title="Down Trend", style=plot.style_linebr, linewidth=2, color=color.red)
+sellSignal3 = trend3 == -1 and trend3[1] == 1
+plotshape(sellSignal3 ? dn4 : na, title="DownTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=color.red, transp=0)
+mPlot3 = plot(ohlc4, title="Open/High/Low/Close", style=plot.style_circles, linewidth=0)
+
+// Bullish (Long)
+// Price > 200 EMA
+// Stochastic < 20 (oversold) with K crossup
+// Case 1: At least 2 supertrend lines below price (close), supertrend lines are upPlot, upPlot2, upPlot3
+// Case 2: If only 1 supertrend line below price:
+//         Wait until 2 supertrend lines below and enter, but only if Stochastic (k or d) < 50
+// Stop loss at 2 supertrend lines below price
+
+longPlot1 = trend1 == 1 ? up : na
+longPlot2 = trend2 == 1 ? up2 : na
+longPlot3 = trend3 == 1 ? up4 : na
+longValid1 = not na(longPlot1) and close > longPlot1
+longValid2 = not na(longPlot2) and close > longPlot2
+longValid3 = not na(longPlot3) and close > longPlot3
+longValidNum = 0
+longValidNum += longValid1 ? 1 : 0
+longValidNum += longValid2 ? 1 : 0
+longValidNum += longValid3 ? 1 : 0
+
+// Case 1: 1 supertrend line is below price
+conditionallyValidLong = longValidNum == 1 and stoLong and emaLong
+
+// Case 2: 2 supertrend lines are below price
+superLong = (longValid1 and longValid2) or (longValid1 and longValid3) or (longValid2 and longValid3)
+tempLong = emaLong and stoLong and superLong
+
+// Case 1: EMA is valid, stochastic is not, but still less than 50 and there are now 2 supertrend lines
+if emaLong and (not stoLong and (d < 50 or k < 50)) and (superLong and barssince(conditionallyValidLong) < 10)
+    tempLong := true
+
+long = tempLong ? 1 : 0
+
+// Bearish (Short)
+// Price < 200 EMA
+// Stochastic > 80 (overbought) with K crossdown
+// Case 1: At least 2 supertrend lines above price (close), supertrend lines are dnPlot, dnPlot2, dnPlot3
+// Case 2: If only 1 supertrend line above price:
+//         Wait until 2 supertrend lines above and enter, but only if Stochastic (either k or d) > 50
+// Stop loss at 2 supertrend lines above price
+
+shortPlot1 = trend1 == 1 ? na : dn
+shortPlot2 = trend2 == 1 ? na : dn2
+shortPlot3 = trend3 == 1 ? na : dn4
+shortValid1 = not na(shortPlot1) and close < shortPlot1
+shortValid2 = not na(shortPlot2) and close < shortPlot2
+shortValid3 = not na(shortPlot3) and close < shortPlot3
+shortValidNum = 0
+shortValidNum += shortValid1 ? 1 : 0
+shortValidNum += shortValid2 ? 1 : 0
+shortValidNum += shortValid3 ? 1 : 0
+
+// Case 1: 1 supertrend line is above price
+conditionallyValidShort = shortValidNum == 1 and stoShort and emaShort
+
+// Case 2: 2 supertrend lines are above price
+superShort = (shortValid1 and shortValid2) or (shortValid1 and shortValid3) or (shortValid2 and shortValid3)
+tempShort = emaShort and stoShort and superShort
+
+// Case 1: EMA is valid, stochastic is not, but still greater than 50 and there are now 2 supertrend lines
+if emaShort and (not stoShort and (d > 50 or k > 50)) and (superShort and barssince(conditionallyValidShort) < 10)
+    tempShort := true
+    
+short = tempShort ? 1 : 0
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

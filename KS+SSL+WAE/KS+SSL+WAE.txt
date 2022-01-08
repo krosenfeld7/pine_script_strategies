@@ -1,0 +1,74 @@
+//@version=4
+study(title="Kijun-Sen + SSL + WAE", shorttitle="KS + SSL + WAE", overlay=true)
+
+// Kijun-Sen+
+basePeriods = input(26, minval=1, title="Kijun-Sen Period")
+donchian(len) => avg(lowest(len), highest(len))
+baseLine = donchian(basePeriods)
+plot(baseLine, color=color.yellow, linewidth = 2, title="Kijun-Sen")
+
+ksLong  = close > baseLine
+ksShort = close < baseLine
+
+// SSL
+len=input(title="SSL Period", defval=10)
+smaHigh=sma(high, len)
+smaLow=sma(low, len)
+var float Hlv = na
+Hlv := close > smaHigh ? 1 : close < smaLow ? -1 : Hlv[1]
+sslDown = Hlv < 0 ? smaHigh: smaLow
+sslUp   = Hlv < 0 ? smaLow : smaHigh
+
+plot(sslDown, linewidth=2, color=color.red)
+plot(sslUp, linewidth=2, color=color.lime)
+
+sslLong  = crossover(sslUp,  sslDown)
+sslShort = crossunder(sslUp, sslDown)
+
+// WAE
+sensitivity = input(150, title="WAE Sensitivity")
+fastLength=input(20, title="WAE Fast EMA Length")
+slowLength=input(40, title="WAE Slow EMA Length")
+channelLength=input(20, title="BB Channel Length")
+mult=input(2.0, title="BB Stdev Multiplier")
+deadZone=input(20, title="No trade zone threshold")
+
+calc_macd(source, fastLength, slowLength) =>
+	fastMA = ema(source, fastLength)
+	slowMA = ema(source, slowLength)
+	fastMA - slowMA
+
+calc_BBUpper(source, length, mult) => 
+	basis = sma(source, length)
+	dev = mult * stdev(source, length)
+	basis + dev
+
+calc_BBLower(source, length, mult) => 
+	basis = sma(source, length)
+	dev = mult * stdev(source, length)
+	basis - dev
+
+t1 = (calc_macd(close, fastLength, slowLength) - calc_macd(close[1], fastLength, slowLength))*sensitivity
+t2 = (calc_macd(close[2], fastLength, slowLength) - calc_macd(close[3], fastLength, slowLength))*sensitivity
+
+e1 = (calc_BBUpper(close, channelLength, mult) - calc_BBLower(close, channelLength, mult))
+
+trendUp = (t1 >= 0) ? t1 : 0
+trendDown = (t1 < 0) ? (-1*t1) : 0
+
+waeLong  = trendUp   > e1
+waeShort = trendDown > e1
+
+// Computing Strategy
+
+long  = ksLong  and sslLong  and waeLong
+short = ksShort and sslShort and waeShort
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

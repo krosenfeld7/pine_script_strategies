@@ -1,0 +1,179 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+strategy("200 EMA + Alligator + Stochastic Long Strategy (H)", overlay = true, pyramiding = 0, 
+         margin_long = 100, margin_short = 100, default_qty_type = strategy.percent_of_equity, 
+         default_qty_value = 20, initial_capital = 2000, process_orders_on_close = true)
+
+// Set the starting point for backtesting
+start = input(title="Backtesting Start", type=input.time, defval=timestamp("1 Jan 2015"))
+// Expiration time on orders
+maxTimeOpen = input(title="Order Expiration", type=input.integer, defval=100, minval=1)
+useAtr = input(title="Use ATR?", type=input.bool, defval=false)
+
+// Algorithm / Strategy Goes here
+// Set long / short variables to execute positions below
+
+// 200 period EMA
+len1 = input(200, minval=1, title="EMA Length")
+src1 = input(close, title="EMA Source")
+offset = input(title="EMA Offset", type=input.integer, defval=0, minval=-500, maxval=500)
+ema200 = ema(src1, len1)
+
+emaLong = close > ema200
+emaShort =  close < ema200
+
+// Stochastic RSI
+smoothK = input(3, "Stochastic K", minval=1)
+smoothD = input(3, "Stochastic D", minval=1)
+lengthRSI = input(14, "RSI Length", minval=1)
+lengthStoch = input(14, "Stochastic Length", minval=1)
+src2 = input(close, title="RSI Source")
+rsi1 = rsi(src2, lengthRSI)
+k = sma(stoch(rsi1, rsi1, rsi1, lengthStoch), smoothK)
+d = sma(k, smoothD)
+
+stoLong = k < 20 and d < 20 and crossover(k, d)
+stoShort = k > 80 and d > 80 and crossunder(k, d)
+
+// Alligator 
+smma(src3, length) =>
+	smma =  0.0
+	smma := na(smma[1]) ? sma(src3, length) : (smma[1] * (length - 1) + src3) / length
+	smma
+jawLength = input(13, minval=1, title="Jaw Length")
+teethLength = input(8, minval=1, title="Teeth Length")
+lipsLength = input(5, minval=1, title="Lips Length")
+jawOffset = input(8, title="Jaw Offset")
+teethOffset = input(5, title="Teeth Offset")
+lipsOffset = input(3, title="Lips Offset")
+jaw = smma(hl2, jawLength)
+teeth = smma(hl2, teethLength)
+lips = smma(hl2, lipsLength)
+
+alligatorLong = close < jaw[jawOffset] and close < teeth[teethOffset] and close < lips[lipsOffset]
+alligatorShort = close > jaw[jawOffset] and close > teeth[teethOffset] and close > lips[lipsOffset]
+
+// RSI Divergence Section
+len = input(title="RSI Period", minval=1, defval=9)
+src = input(title="RSI Source", defval=close)
+lbR = input(title="Pivot Lookback Right", defval=3)
+lbL = input(title="Pivot Lookback Left", defval=1)
+takeProfitRSILevel = input(title="Take Profit at RSI Level", minval=70, defval=80)
+
+rangeUpper = input(title="Max of Lookback Range", defval=60)
+rangeLower = input(title="Min of Lookback Range", defval=5)
+plotBull = input(title="Plot Bullish", defval=true)
+plotHiddenBull = input(title="Plot Hidden Bullish", defval=true)
+plotBear = input(title="Plot Bearish", defval=true)
+plotHiddenBear = input(title="Plot Hidden Bearish", defval=false)
+
+bearColor = color.purple
+bullColor = color.green
+hiddenBullColor = color.new(color.green, 80)
+hiddenBearColor = color.new(color.red, 80)
+textColor = color.white
+noneColor = color.new(color.white, 100)
+
+osc = rsi(src, len)
+
+plFound = na(pivotlow(osc, lbL, lbR)) ? false : true
+phFound = na(pivothigh(osc, lbL, lbR)) ? false : true
+
+_inRange(cond) =>
+    bars = barssince(cond == true)
+    rangeLower <= bars and bars <= rangeUpper
+
+//------------------------------------------------------------------------------
+// Regular Bullish
+
+// Osc: Higher Low
+oscHL = osc[lbR] > valuewhen(plFound, osc[lbR], 1) and _inRange(plFound[1])
+
+// Price: Lower Low
+priceLL = low[lbR] < valuewhen(plFound, low[lbR], 1)
+
+bullCond = plotBull and priceLL and oscHL and plFound
+
+//------------------------------------------------------------------------------
+// Hidden Bullish
+
+// Osc: Lower Low
+oscLL = osc[lbR] < valuewhen(plFound, osc[lbR], 1) and _inRange(plFound[1])
+
+// Price: Higher Low
+priceHL = low[lbR] > valuewhen(plFound, low[lbR], 1)
+
+hiddenBullCond = plotHiddenBull and priceHL and oscLL and plFound
+longCondition=bullCond or hiddenBullCond
+//? osc[lbR] : na  
+//hiddenBullCond
+
+divergenceLong = longCondition
+
+//draw initil stop loss
+//plot(strategy.position_size>=1 ? trailing_sl : na, color = color.blue , style=plot.style_linebr,  linewidth = 2, title = "stop loss")
+//plot(trailing_sl, title="ATR Trailing Stop Loss", style=plot.style_linebr, linewidth=1, color=color.purple, transp=30)
+//Trailing StopLoss
+////// Calculate trailing SL
+/////////////////////////////////////////////////////
+
+
+//------------------------------------------------------------------------------
+// Regular Bearish
+
+// Osc: Lower High
+oscLH = osc[lbR] < valuewhen(phFound, osc[lbR], 1) and _inRange(phFound[1])
+
+// Price: Higher High
+priceHH = high[lbR] > valuewhen(phFound, high[lbR], 1)
+
+bearCond = plotBear and priceHH and oscLH and phFound
+
+//------------------------------------------------------------------------------
+// Hidden Bearish
+
+// Osc: Higher High
+oscHH = osc[lbR] > valuewhen(phFound, osc[lbR], 1) and _inRange(phFound[1])
+
+// Price: Lower High
+priceLH = high[lbR] < valuewhen(phFound, high[lbR], 1)
+
+hiddenBearCond = plotHiddenBear and priceLH and oscHH and phFound
+longCloseCondition = bearCond or hiddenBearCond
+
+divergenceLong := divergenceLong and not longCloseCondition
+
+long = emaLong and stoLong and alligatorLong ? 1 : 0
+
+// Average True Range
+length = input(title="ATR Length", defval=14, minval=1)
+atrMultiplier = input(title="ATR Multiplier", type=input.float, defval=1, minval=0.1)
+atr = atr(length)
+
+longProfitPercent = input(title = "Profit %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+longLossPercent = input(title = "Loss %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+
+// Calculating exact prices for stop loss and exit prices
+longExitPercentPrice = strategy.position_avg_price * (1 + longProfitPercent)
+longStopPercentPrice = strategy.position_avg_price * (1 - longLossPercent)
+
+// Profit & Loss via ATR
+longExitPrice = useAtr ? strategy.position_avg_price + atr * atrMultiplier : longExitPercentPrice
+longStopPrice = useAtr ? strategy.position_avg_price - atr * atrMultiplier : longStopPercentPrice
+
+// Plotting profit / loss targets
+plot(series = (strategy.position_size > 0) ? longExitPrice : na, color = color.green, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Long Target")
+plot(series = (strategy.position_size > 0) ? longStopPrice : na, color = color.red, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Long Stop Loss")
+
+// Submit entry orders
+if time >= start
+    strategy.entry(id = "Long", long = strategy.long, comment = "Long Open", when = long)
+
+// Submit exit orders
+strategy.exit(id = "Long", limit = longExitPrice, stop = longStopPrice, comment = "Long Close", when = strategy.position_size > 0)
+strategy.close(id = "Long", comment = "Expired: >" + tostring(maxTimeOpen), when = (barssince(change(strategy.opentrades)) + 1) >= maxTimeOpen)
+

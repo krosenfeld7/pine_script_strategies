@@ -1,0 +1,142 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+study("200 EMA + Alligator + Stochastic", shorttitle="200 EMA + Alligator + Stochastic", overlay=true)
+// 200 period EMA
+len1 = input(200, minval=1, title="EMA Length")
+src1 = input(close, title="EMA Source")
+offset = input(title="EMA Offset", type=input.integer, defval=0, minval=-500, maxval=500)
+ema200 = ema(src1, len1)
+
+emaLong = close > ema200
+emaShort =  close < ema200
+
+// Stochastic RSI
+smoothK = input(3, "Stochastic K", minval=1)
+smoothD = input(3, "Stochastic D", minval=1)
+lengthRSI = input(14, "RSI Length", minval=1)
+lengthStoch = input(14, "Stochastic Length", minval=1)
+src2 = input(close, title="RSI Source")
+rsi1 = rsi(src2, lengthRSI)
+k = sma(stoch(rsi1, rsi1, rsi1, lengthStoch), smoothK)
+d = sma(k, smoothD)
+
+stoLong = k < 20 and d < 20 and crossover(k, d)
+stoShort = k > 80 and d > 80 and crossunder(k, d)
+
+// Alligator 
+smma(src3, length) =>
+	smma =  0.0
+	smma := na(smma[1]) ? sma(src3, length) : (smma[1] * (length - 1) + src3) / length
+	smma
+jawLength = input(13, minval=1, title="Jaw Length")
+teethLength = input(8, minval=1, title="Teeth Length")
+lipsLength = input(5, minval=1, title="Lips Length")
+jawOffset = input(8, title="Jaw Offset")
+teethOffset = input(5, title="Teeth Offset")
+lipsOffset = input(3, title="Lips Offset")
+jaw = smma(hl2, jawLength)
+teeth = smma(hl2, teethLength)
+lips = smma(hl2, lipsLength)
+
+alligatorLong = close < jaw[jawOffset] and close < teeth[teethOffset] and close < lips[lipsOffset]
+alligatorShort = close > jaw[jawOffset] and close > teeth[teethOffset] and close > lips[lipsOffset]
+
+// RSI Divergence Section
+len = input(title="RSI Period", minval=1, defval=9)
+src = input(title="RSI Source", defval=close)
+lbR = input(title="Pivot Lookback Right", defval=3)
+lbL = input(title="Pivot Lookback Left", defval=1)
+takeProfitRSILevel = input(title="Take Profit at RSI Level", minval=70, defval=80)
+
+rangeUpper = input(title="Max of Lookback Range", defval=60)
+rangeLower = input(title="Min of Lookback Range", defval=5)
+plotBull = input(title="Plot Bullish", defval=true)
+plotHiddenBull = input(title="Plot Hidden Bullish", defval=true)
+plotBear = input(title="Plot Bearish", defval=true)
+plotHiddenBear = input(title="Plot Hidden Bearish", defval=false)
+
+bearColor = color.purple
+bullColor = color.green
+hiddenBullColor = color.new(color.green, 80)
+hiddenBearColor = color.new(color.red, 80)
+textColor = color.white
+noneColor = color.new(color.white, 100)
+
+osc = rsi(src, len)
+
+plFound = na(pivotlow(osc, lbL, lbR)) ? false : true
+phFound = na(pivothigh(osc, lbL, lbR)) ? false : true
+
+_inRange(cond) =>
+    bars = barssince(cond == true)
+    rangeLower <= bars and bars <= rangeUpper
+
+//------------------------------------------------------------------------------
+// Regular Bullish
+
+// Osc: Higher Low
+oscHL = osc[lbR] > valuewhen(plFound, osc[lbR], 1) and _inRange(plFound[1])
+
+// Price: Lower Low
+priceLL = low[lbR] < valuewhen(plFound, low[lbR], 1)
+
+bullCond = plotBull and priceLL and oscHL and plFound
+
+//------------------------------------------------------------------------------
+// Hidden Bullish
+
+// Osc: Lower Low
+oscLL = osc[lbR] < valuewhen(plFound, osc[lbR], 1) and _inRange(plFound[1])
+
+// Price: Higher Low
+priceHL = low[lbR] > valuewhen(plFound, low[lbR], 1)
+
+hiddenBullCond = plotHiddenBull and priceHL and oscLL and plFound
+longCondition=bullCond or hiddenBullCond
+//? osc[lbR] : na  
+//hiddenBullCond
+
+divergenceLong = longCondition
+
+//draw initil stop loss
+//plot(strategy.position_size>=1 ? trailing_sl : na, color = color.blue , style=plot.style_linebr,  linewidth = 2, title = "stop loss")
+//plot(trailing_sl, title="ATR Trailing Stop Loss", style=plot.style_linebr, linewidth=1, color=color.purple, transp=30)
+//Trailing StopLoss
+////// Calculate trailing SL
+/////////////////////////////////////////////////////
+
+
+//------------------------------------------------------------------------------
+// Regular Bearish
+
+// Osc: Lower High
+oscLH = osc[lbR] < valuewhen(phFound, osc[lbR], 1) and _inRange(phFound[1])
+
+// Price: Higher High
+priceHH = high[lbR] > valuewhen(phFound, high[lbR], 1)
+
+bearCond = plotBear and priceHH and oscLH and phFound
+
+//------------------------------------------------------------------------------
+// Hidden Bearish
+
+// Osc: Higher High
+oscHH = osc[lbR] > valuewhen(phFound, osc[lbR], 1) and _inRange(phFound[1])
+
+// Price: Lower High
+priceLH = high[lbR] < valuewhen(phFound, high[lbR], 1)
+
+hiddenBearCond = plotHiddenBear and priceLH and oscHH and phFound
+longCloseCondition = bearCond or hiddenBearCond
+
+divergenceLong := divergenceLong and not longCloseCondition
+
+long = emaLong and stoLong and alligatorLong ? 1 : 0
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

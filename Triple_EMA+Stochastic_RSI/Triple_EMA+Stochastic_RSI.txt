@@ -1,0 +1,39 @@
+//@version=4
+// EMA Section
+study(title="Triple EMA + Stochastic", shorttitle="Triple EMA + Stochastic", overlay=true)
+
+len1 = input(20, minval=1, title="Short EMA Length")
+src1 = input(close, title="Short EMA Source")
+out1 = ema(src1, len1)
+plot(out1, title="Short EMA", color=color.blue, linewidth=3)
+len2 = input(50, minval=1, title="Intermediate EMA Length")
+src2 = input(close, title="Intermediate EMA Source")
+out2 = ema(src2, len2)
+plot(out2, title="Intermediate EMA", color=color.yellow, linewidth=3)
+len3 = input(200, minval=1, title="Long EMA Length")
+src3 = input(close, title="Long EMA Source")
+out3 = ema(src3, len3)
+plot(out3, title="Long EMA", color=color.white, linewidth=3)
+
+// Stochastic RSI Section
+smoothK = input(3, "Stochastic K", minval=1)
+smoothD = input(3, "Stochastic D", minval=1)
+src = input(close, title="RSI Source")
+lengthRSI = input(14, "RSI Length", minval=1)
+lengthStoch = input(14, "Stochastic Length", minval=1)
+rsi1 = rsi(src, lengthRSI)
+k = sma(stoch(rsi1, rsi1, rsi1, lengthStoch), smoothK)
+d = sma(k, smoothD)
+
+// Computing Strategy
+long = (barstate.isconfirmed and (k > d) and (out1 > out2) and (out2 > out3) and (close > out1) and ((open < close) and (close > close[1])) and (open > out1)) ? 1 : 0
+short = (barstate.isconfirmed and (d > k) and ((out1 < out2) and (out2 < out3)) and (close < out1) and ((open > close) and (close < close[1])) and (open < out1)) ? 1 : 0
+
+if long
+    label.new(x = bar_index, y = na, text = "Long", yloc = yloc.abovebar, color = color.green)
+if short
+    label.new(x = bar_index, y = na, text = "Short", yloc = yloc.abovebar, color = color.red)
+
+// Alerts
+alertcondition(long, title = "Long Signal", message = "Long @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")
+alertcondition(short, title = "Short Signal", message = "Short @ {{timenow}}: {{ticker}} -> {{interval}}: {{close}}")

@@ -1,0 +1,60 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © krosenfeld7
+
+//@version=4
+strategy("Daily Trend + 4 Hour Reversal + 15 Min Pressure Short Strategy (Not Good)", overlay = true, pyramiding = 0, 
+         margin_long = 100, margin_short = 100, default_qty_type = strategy.percent_of_equity, 
+         default_qty_value = 20, initial_capital = 2000, process_orders_on_close = true)
+
+// Set the starting point for backtesting
+start = input(title="Backtesting Start", type=input.time, defval=timestamp("1 Jan 2015"))
+// Expiration time on orders
+maxTimeOpen = input(title="Order Expiration", type=input.integer, defval=100, minval=1)
+useAtr = input(title="Use ATR?", type=input.bool, defval=false)
+
+// Algorithm / Strategy Goes here
+// Set short variables to execute positions below
+ema50daily = ema(close, 50)
+ema50hourly = ema(close, 50)
+emaDaily = security(syminfo.tickerid, "D", ema50daily, barmerge.gaps_off, barmerge.lookahead_on)
+emaHourly = security(syminfo.tickerid, "240", ema50hourly, barmerge.gaps_off, barmerge.lookahead_on)
+
+plot(emaDaily, color=color.white, linewidth=3)
+plot(emaHourly, color=color.blue, linewidth=3)
+
+emaDailyShort = close < emaDaily
+emaHourlyShort = crossunder(close, emaHourly)
+sellPressure = close < low[1]
+
+tempShort = emaDailyShort and emaHourlyShort and sellPressure
+short = tempShort ? 1 : 0
+
+// Average True Range
+length = input(title="ATR Length", defval=14, minval=1)
+atrMultiplier = input(title="ATR Multiplier", type=input.float, defval=1, minval=0.1)
+atr = atr(length)
+
+shortProfitPercent = input(title = "Profit %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+shortLossPercent = input(title = "Loss %",
+     type = input.float, minval = 0.0, step = 0.1, defval = 10) / 100
+
+// Calculating exact prices for stop loss and exit prices
+shortExitPercentPrice = strategy.position_avg_price * (1 - shortProfitPercent)
+shortStopPercentPrice = strategy.position_avg_price * (1 + shortLossPercent)
+
+// Profit & Loss via ATR
+shortExitPrice = useAtr ? strategy.position_avg_price - atr * atrMultiplier : shortExitPercentPrice
+shortStopPrice = useAtr ? strategy.position_avg_price + atr * atrMultiplier : shortStopPercentPrice
+
+// Plotting profit / loss targets
+plot(series = (strategy.position_size < 0) ? shortExitPrice : na, color = #33b802, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Short Target")
+plot(series = (strategy.position_size < 0) ? shortStopPrice : na, color = #ff0900, style = plot.style_linebr, transp = 0, linewidth = 3, title = "Short Stop Loss")
+
+// Submit entry orders
+if time >= start
+    strategy.entry(id = "Short", long = strategy.short, comment = "Short Open", when = short)
+
+// Submit exit orders
+strategy.exit(id = "Short", limit = shortExitPrice, stop = shortStopPrice, comment = "Short Close", when = strategy.position_size < 0)
+strategy.close(id = "Short", comment = "Expired: >" + tostring(maxTimeOpen), when = (barssince(change(strategy.opentrades)) + 1) >= maxTimeOpen)
